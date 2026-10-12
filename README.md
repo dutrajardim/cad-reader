@@ -68,30 +68,9 @@ java -jar target/java-cad-reader-1.0.0.jar
 
 O projeto usa apenas bibliotecas do JDK. O JAR contém a aplicação e o manifesto executável; não precisa das pastas do projeto original que ficam fora deste repositório.
 
-## Publicação no GitHub
+## Builds e versões automáticas
 
 Repositório: [dutrajardim/cad-reader](https://github.com/dutrajardim/cad-reader).
-
-Publique **o conteúdo da pasta `java-cad-reader` como raiz do repositório**: `pom.xml`, `src/`, `tests/`, documentação e `.github/` devem ficar diretamente na raiz. Configure a branch padrão como `main`. O workflow não deve ficar dentro de uma subpasta `java-cad-reader` no GitHub.
-
-Para enviar os arquivos ao repositório já criado, execute de dentro de `java-cad-reader` (caso esta pasta ainda não tenha sido inicializada como repositório Git):
-
-```sh
-git init -b main
-git add .
-git diff --cached --stat
-git commit -m "Prepara CAD Reader e build automático"
-git remote add origin https://github.com/dutrajardim/cad-reader.git
-git push -u origin main
-```
-
-Se a pasta já tiver um repositório Git, confira `git remote -v`; para corrigir um `origin` existente, use `git remote set-url origin https://github.com/dutrajardim/cad-reader.git`. Se o remoto já contiver commits, clone-o em outra pasta e copie o conteúdo de `java-cad-reader` para ela antes de fazer commit e push.
-
-O `.gitignore` exclui builds, arquivos `.env`, chaves, perfis, históricos e capturas locais. Arquivos já rastreados pelo Git precisam ser removidos do índice separadamente. Os dados normais da aplicação ficam na pasta pessoal do usuário (`~/.java-cad-reader` no Linux e `%USERPROFILE%\.java-cad-reader` no Windows).
-
-### Build local ou no GitHub?
-
-**Recomendação: distribuir o build gerado pelo GitHub Actions.** O processo associa o JAR ao commit, compila com Java 11 em um ambiente limpo e executa verificações no Windows e no Linux antes de liberar o download. O build local continua útil para desenvolver e validar alterações, mas o JAR e `target/` não devem entrar no Git.
 
 O workflow executa em pushes para `main`, pull requests destinados a `main` e manualmente pelo botão **Run workflow**. Os testes sem interface usam transportes falsos e sockets locais; o broker simulado roda no Linux. Testes que exigem janelas continuam separados, conforme [TESTES.md](TESTES.md). Somente depois de ambos os sistemas passarem, o job de artefato recompila o mesmo commit e guarda o JAR no Actions por **30 dias**, conforme a retenção permitida pelo repositório. Em pushes e execuções manuais de `main`, o job de publicação usa esse mesmo artefato para criar uma **GitHub Release por commit**, com tag `build-<SHA>` e anexo **cad-reader.jar**. A Release é marcada como a mais recente, mantendo fixo o endereço `/releases/latest/download/cad-reader.jar`. Releases permanecem disponíveis até serem removidas. Pull requests e execuções de outras branches não publicam Releases; reexecuções de commits que já não são o topo de `main` também não publicam. Reexecutar o mesmo commit atualiza seu anexo existente.
 
