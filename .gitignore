@@ -1,0 +1,37 @@
+# Compilação e testes
+/target/
+*.class
+*.jar
+__pycache__/
+*.py[cod]
+
+# IDEs e sistema operacional
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db
+
+# Segredos e configurações locais (a aplicação não carrega .env)
+.env
+.env.*
+!.env.example
+/settings.xml
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+
+# Dados operacionais, perfis e capturas locais
+.java-cad-reader/
+/perfis/
+/discord-*/
+/historico.csv
+*.log
+*.pcap
+*.pcapng
+*.tmp
