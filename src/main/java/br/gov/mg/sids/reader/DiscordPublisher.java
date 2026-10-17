@@ -80,13 +80,17 @@ final class DiscordPublisher implements AutoCloseable {
             throw new IllegalArgumentException("Janela inválida");
         this.batchWindowMillis = batchWindowMillis;
         this.scope = scope;
-        if (!webhook.matches("https://discord\\.com/api(?:/v[0-9]+)?/webhooks/[0-9]+/[A-Za-z0-9_-]+"))
+        String normalizedWebhook = webhook == null ? "" : webhook.trim();
+        normalizedWebhook = normalizedWebhook.replaceFirst("/+$", "");
+        if (normalizedWebhook.startsWith("https://discordapp.com/api/"))
+            normalizedWebhook = "https://discord.com/api/" + normalizedWebhook.substring("https://discordapp.com/api/".length());
+        if (!normalizedWebhook.matches("https://discord\\.com/api(?:/v[0-9]+)?/webhooks/[0-9]+/[A-Za-z0-9._-]+"))
             throw new IllegalArgumentException(
                 "Informe a URL completa do webhook de um canal de fórum do Discord.");
-        this.webhook = webhook;
+        this.webhook = normalizedWebhook;
         this.log = log;
         // A identidade usa o ID público, sem incorporar o token ao nome da pasta.
-        String id = webhook.split("/webhooks/")[1].split("/")[0];
+        String id = this.webhook.split("/webhooks/")[1].split("/")[0];
         directory = root.resolve("discord-" + AppFiles.hash(id).substring(0, 20));
         Files.createDirectories(directory);
         lockChannel = FileChannel.open(directory.resolve("publisher.lock"), StandardOpenOption.CREATE,
