@@ -1,8 +1,6 @@
 package br.gov.mg.sids.reader;
 
-import okhttp3.WebSocket;
-import okhttp3.Request;
-import okio.ByteString;
+import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
@@ -12,15 +10,27 @@ public final class ReaderBotGatewayTest {
     static final class Socket implements WebSocket {
         final List<Map<String, Object>> sent = new CopyOnWriteArrayList<>();
         boolean aborted;
-        public boolean send(String text) {
-            sent.add(BotJson.object(BotJson.parse(text)));
-            return true;
+        public CompletableFuture<WebSocket> sendText(CharSequence text, boolean last) {
+            sent.add(BotJson.object(BotJson.parse(text.toString())));
+            return CompletableFuture.completedFuture(this);
         }
-        public boolean send(ByteString bytes) { return true; }
-        public boolean close(int code, String reason) { return true; }
-        public void cancel() { aborted = true; }
-        public Request request() { return new Request.Builder().url("https://gateway.discord.gg").build(); }
-        public long queueSize() { return 0; }
+        public CompletableFuture<WebSocket> sendBinary(ByteBuffer data, boolean last) {
+            return CompletableFuture.completedFuture(this);
+        }
+        public CompletableFuture<WebSocket> sendPing(ByteBuffer message) {
+            return CompletableFuture.completedFuture(this);
+        }
+        public CompletableFuture<WebSocket> sendPong(ByteBuffer message) {
+            return CompletableFuture.completedFuture(this);
+        }
+        public CompletableFuture<WebSocket> sendClose(int statusCode, String reason) {
+            return CompletableFuture.completedFuture(this);
+        }
+        public void request(long n) { }
+        public String getSubprotocol() { return ""; }
+        public boolean isOutputClosed() { return aborted; }
+        public boolean isInputClosed() { return aborted; }
+        public void abort() { aborted = true; }
     }
     static void check(boolean condition, String message) {
         ReaderIntegrationTest.check(condition, message);
