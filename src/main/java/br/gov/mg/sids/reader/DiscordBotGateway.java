@@ -17,8 +17,7 @@ final class DiscordBotGateway implements AutoCloseable {
     private final Consumer<Map<String, Object>> interaction;
     private final Consumer<String> log;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
-    private final okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-        .proxySelector(ProxySelector.getDefault())
+    private final okhttp3.OkHttpClient client = DiscordBotApi.networkBuilder()
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).build();
     private volatile boolean closed;
