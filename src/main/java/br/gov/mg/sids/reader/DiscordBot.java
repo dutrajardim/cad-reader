@@ -69,6 +69,12 @@ final class DiscordBot implements AutoCloseable {
         log.accept("Bot: etapa — " + stage);
         try { return api.request(method, path, data); }
         catch (DiscordBotApi.ApiFailure e) { throw startupFailure(stage, e); }
+        catch (java.net.SocketTimeoutException e) {
+            throw new IllegalStateException("Ao " + stage + ": timeout ao acessar o Discord; confira o proxy configurado para HTTPS.", e);
+        }
+        catch (java.io.IOException e) {
+            throw new IllegalStateException("Ao " + stage + ": falha de rede (" + e.getClass().getSimpleName() + "); confira proxy e acesso ao Discord.", e);
+        }
     }
     private IllegalStateException startupFailure(String stage, DiscordBotApi.ApiFailure failure) {
         String hint;
