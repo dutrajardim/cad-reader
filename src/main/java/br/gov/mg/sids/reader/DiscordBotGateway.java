@@ -17,9 +17,29 @@ final class DiscordBotGateway implements AutoCloseable {
     private final Consumer<Map<String, Object>> interaction;
     private final Consumer<String> log;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
-    private final okhttp3.OkHttpClient client = DiscordBotApi.networkBuilder()
-        .connectTimeout(20, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(false).build();
+    private final okhttp3.OkHttpClient client = gatewayClient();
+
+    /**
+     * O Gateway usa OkHttp porque Java 8 não possui WebSocket nativo. Quando há proxy JVM
+     * explícito, fixa o proxy no cliente em vez de delegar sua escolha ao ProxySelector.
+     */
+    private static okhttp3.OkHttpClient gatewayClient() {
+        okhttp3.OkHttpClient.Builder builder = new okhttp3.OkHttpClient.Builder();
+        Proxy proxy = DiscordBotApi.discordProxy();
+        if (proxy != null) {
+            builder.proxy(proxy);
+            // O proxy corporativo pode demorar mais para concluir CONNECT + TLS do WebSocket.
+            builder.connectTimeout(45, TimeUnit.SECONDS);
+        } else {
+            builder.proxySelector(ProxySelector.getDefault());
+            builder.connectTimeout(20, TimeUnit.SECONDS);
+        }
+        return builder.readTimeout(0, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .pingInterval(0, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build();
+    }
     private volatile boolean closed;
     private volatile String status = "conectando…";
     private volatile WebSocket socket;
@@ -196,9 +216,12 @@ final class DiscordBotGateway implements AutoCloseable {
                 : error instanceof javax.net.ssl.SSLException ? "TLS"
                 : error instanceof java.net.ProtocolException ? "protocolo"
                 : "transporte (" + error.getClass().getSimpleName() + ")";
+            Proxy configured = DiscordBotApi.discordProxy();
+            String route = configured == null ? "rota automática" : "proxy HTTPS explícito";
             log.accept("Bot: falha no WebSocket Discord: " + kind
                 + (response == null ? "" : "; HTTP " + response.code())
-                + ". Confira proxy do sistema e acesso ao Gateway.");
+                + "; " + route
+                + ". Confira se o proxy permite CONNECT/WebSocket para gateway.discord.gg:443.");
             retry(ws, 0);
         }
     }
