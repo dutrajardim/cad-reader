@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest]
-        java: [8, 11]
+        java: [11]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -103,7 +103,7 @@ jobs:
           fi
           cp dist/java-cad-reader-1.0.0.jar dist/cad-reader.jar
           tag="build-$GITHUB_SHA"
-          printf 'Build automático de main.\n\nCommit: %s\n\nRequer Java 8 (1.8) ou superior e ambiente gráfico. Informe as credenciais na interface.\n' "$GITHUB_SHA" > dist/release-notes.md
+          printf 'Build automático de main.\n\nCommit: %s\n\nRequer Java 11 ou superior e ambiente gráfico. Informe as credenciais na interface.\n' "$GITHUB_SHA" > dist/release-notes.md
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" dist/cad-reader.jar --clobber
             gh release edit "$tag" --title "CAD Reader — main" --notes-file dist/release-notes.md --latest
