@@ -1,10 +1,7 @@
 package br.gov.mg.sids.reader;
 
 import java.net.*;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okhttp3.Request;
-import okhttp3.Response;
+import java.net.http.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -17,45 +14,7 @@ final class DiscordBotGateway implements AutoCloseable {
     private final Consumer<Map<String, Object>> interaction;
     private final Consumer<String> log;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
-    private final Proxy gatewayProxy = resolveGatewayProxy();
-    private final okhttp3.OkHttpClient client = gatewayClient(gatewayProxy);
-
-    /**
-     * Reproduz para o WebSocket a descoberta que URLConnection faz no JDK. O OkHttp recebe
-     * um único proxy já resolvido para o host do Gateway, evitando diferenças de seleção.
-     */
-    static Proxy resolveGatewayProxy() {
-        Proxy explicit = DiscordBotApi.discordProxy();
-        if (explicit != null)
-            return explicit;
-        ProxySelector selector = ProxySelector.getDefault();
-        if (selector == null)
-            return Proxy.NO_PROXY;
-        try {
-            List<Proxy> proxies = selector.select(URI.create("https://gateway.discord.gg/"));
-            if (proxies != null)
-                for (Proxy proxy : proxies)
-                    if (proxy != null && proxy.type() != Proxy.Type.DIRECT)
-                        return proxy;
-        } catch (RuntimeException ignored) { }
-        return Proxy.NO_PROXY;
-    }
-
-    private static okhttp3.OkHttpClient gatewayClient(Proxy proxy) {
-        okhttp3.OkHttpClient.Builder builder = new okhttp3.OkHttpClient.Builder();
-        if (proxy != null && proxy.type() != Proxy.Type.DIRECT) {
-            builder.proxy(proxy);
-            builder.connectTimeout(45, TimeUnit.SECONDS);
-        } else {
-            builder.proxy(Proxy.NO_PROXY);
-            builder.connectTimeout(20, TimeUnit.SECONDS);
-        }
-        return builder.readTimeout(0, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .pingInterval(0, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-            .build();
-    }
+    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     private volatile boolean closed;
     private volatile String status = "conectando…";
     private volatile WebSocket socket;
@@ -64,6 +23,7 @@ final class DiscordBotGateway implements AutoCloseable {
     private boolean awaitingAck;
     private ScheduledFuture<?> heartbeat, reconnect;
     private int retry;
+    private CompletableFuture<Void> writes = CompletableFuture.completedFuture(null);
     DiscordBotGateway(String token, DiscordBotApi api, Consumer<Map<String, Object>> interaction,
                       Consumer<String> log) {
         this.token = token;
@@ -87,12 +47,25 @@ final class DiscordBotGateway implements AutoCloseable {
             return;
         }
         status = session == null ? "conectando…" : "retomando conexão…";
-        socket = client.newWebSocket(new Request.Builder()
-            .url(target.replaceAll("/+$", "") + "/?v=10&encoding=json").build(), new Listener());
+        client.newWebSocketBuilder()
+            .connectTimeout(Duration.ofSeconds(20))
+            .buildAsync(URI.create(target.replaceAll("/+$", "") + "/?v=10&encoding=json"), new Listener())
+            .whenComplete((ws, error) -> {
+                if (error != null)
+                    retry(null, 0);
+                else if (closed)
+                    ws.abort();
+            });
     }
     private synchronized void send(WebSocket ws, Object payload) {
-        if (closed || ws != socket) return;
-        if (!ws.send(BotJson.write(payload))) retry(ws, 0);
+        if (closed || ws != socket)
+            return;
+        String text = BotJson.write(payload);
+        writes = writes.thenCompose(ignored -> ws.sendText(text, true)).thenAccept(ignored -> {});
+        writes.whenComplete((v, error) -> {
+            if (error != null)
+                retry(ws, 0);
+        });
     }
     private synchronized void beat(WebSocket ws) {
         if (ws != socket || closed)
@@ -129,11 +102,11 @@ final class DiscordBotGateway implements AutoCloseable {
                                                   TimeUnit.MILLISECONDS);
             if (session != null)
                 send(ws,
-                     Java8.map("op", 6, "d", Java8.map("token", token, "session_id", session, "seq", sequence)));
+                     Map.of("op", 6, "d", Map.of("token", token, "session_id", session, "seq", sequence)));
             else
-                send(ws, Java8.map("op", 2, "d",
-                                Java8.map("token", token, "intents", 0, "properties",
-                                       Java8.map("os", System.getProperty("os.name"), "browser", "cad-reader",
+                send(ws, Map.of("op", 2, "d",
+                                Map.of("token", token, "intents", 0, "properties",
+                                       Map.of("os", System.getProperty("os.name"), "browser", "cad-reader",
                                               "device", "cad-reader"))));
         } else if (op.equals("11"))
             awaitingAck = false;
@@ -171,7 +144,7 @@ final class DiscordBotGateway implements AutoCloseable {
         if (heartbeat != null)
             heartbeat.cancel(false);
         if (socket != null)
-            socket.cancel();
+            socket.abort();
         socket = null;
         if (code == 4004 || code == 4010 || code == 4011 || code == 4012 || code == 4013 || code == 4014) {
             closed = true;
@@ -203,41 +176,44 @@ final class DiscordBotGateway implements AutoCloseable {
         status = "parado";
         closed = true;
         if (socket != null)
-            socket.cancel();
+            socket.abort();
         timer.shutdownNow();
-        client.dispatcher().cancelAll();
-        client.dispatcher().executorService().shutdownNow();
-        client.connectionPool().evictAll();
     }
-    private final class Listener extends WebSocketListener {
-        @Override public void onOpen(WebSocket ws, Response response) {
+    private final class Listener implements WebSocket.Listener {
+        private final StringBuilder fragments = new StringBuilder();
+        public void onOpen(WebSocket ws) {
             synchronized (DiscordBotGateway.this) {
-                if (closed || ws != socket) ws.cancel();
+                if (closed) {
+                    ws.abort();
+                    return;
+                }
+                socket = ws;
+                writes = CompletableFuture.completedFuture(null);
             }
+            ws.request(1);
         }
-        @Override public void onMessage(WebSocket ws, String text) {
-            if (text.length() > 2_000_000) { retry(ws, 0); return; }
-            try { event(ws, BotJson.object(BotJson.parse(text))); }
-            catch (Exception e) { retry(ws, 0); }
+        public CompletionStage<?> onText(WebSocket ws, CharSequence text, boolean last) {
+            fragments.append(text);
+            if (fragments.length() > 2_000_000) {
+                retry(ws, 0);
+                return null;
+            }
+            if (last) {
+                try {
+                    event(ws, BotJson.object(BotJson.parse(fragments.toString())));
+                } catch (Exception e) {
+                    retry(ws, 0);
+                }
+                fragments.setLength(0);
+            }
+            ws.request(1);
+            return CompletableFuture.completedFuture(null);
         }
-        @Override public void onClosing(WebSocket ws, int code, String reason) {
-            ws.close(code, "");
+        public CompletionStage<?> onClose(WebSocket ws, int code, String reason) {
+            retry(ws, code);
+            return CompletableFuture.completedFuture(null);
         }
-        @Override public void onClosed(WebSocket ws, int code, String reason) { retry(ws, code); }
-        @Override public void onFailure(WebSocket ws, Throwable error, Response response) {
-            // Não registrar URLs, headers nem tokens: somente a categoria da falha.
-            String kind = error instanceof java.net.UnknownHostException ? "DNS"
-                : error instanceof java.net.ConnectException ? "conexão TCP/proxy"
-                : error instanceof java.net.SocketTimeoutException ? "timeout"
-                : error instanceof javax.net.ssl.SSLException ? "TLS"
-                : error instanceof java.net.ProtocolException ? "protocolo"
-                : "transporte (" + error.getClass().getSimpleName() + ")";
-            String route = gatewayProxy != null && gatewayProxy.type() != Proxy.Type.DIRECT
-                ? "proxy selecionado pelo Java" : "conexão direta";
-            log.accept("Bot: falha no WebSocket Discord: " + kind
-                + (response == null ? "" : "; HTTP " + response.code())
-                + "; " + route
-                + ". Confira se o proxy permite CONNECT/WebSocket para gateway.discord.gg:443.");
+        public void onError(WebSocket ws, Throwable error) {
             retry(ws, 0);
         }
     }
