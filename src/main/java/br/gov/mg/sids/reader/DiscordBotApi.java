@@ -23,13 +23,6 @@ class DiscordBotApi implements AutoCloseable {
         }
         return null;
     }
-    static okhttp3.OkHttpClient.Builder networkBuilder() {
-        okhttp3.OkHttpClient.Builder builder = new okhttp3.OkHttpClient.Builder();
-        Proxy proxy = discordProxy();
-        if (proxy != null) builder.proxy(proxy);
-        else builder.proxySelector(ProxySelector.getDefault());
-        return builder;
-    }
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     private final String token;
     private final ConnectionFactory factory;
