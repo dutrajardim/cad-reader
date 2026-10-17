@@ -17,21 +17,37 @@ final class DiscordBotGateway implements AutoCloseable {
     private final Consumer<Map<String, Object>> interaction;
     private final Consumer<String> log;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
-    private final okhttp3.OkHttpClient client = gatewayClient();
+    private final Proxy gatewayProxy = resolveGatewayProxy();
+    private final okhttp3.OkHttpClient client = gatewayClient(gatewayProxy);
 
     /**
-     * O Gateway usa OkHttp porque Java 8 não possui WebSocket nativo. Quando há proxy JVM
-     * explícito, fixa o proxy no cliente em vez de delegar sua escolha ao ProxySelector.
+     * Reproduz para o WebSocket a descoberta que URLConnection faz no JDK. O OkHttp recebe
+     * um único proxy já resolvido para o host do Gateway, evitando diferenças de seleção.
      */
-    private static okhttp3.OkHttpClient gatewayClient() {
+    static Proxy resolveGatewayProxy() {
+        Proxy explicit = DiscordBotApi.discordProxy();
+        if (explicit != null)
+            return explicit;
+        ProxySelector selector = ProxySelector.getDefault();
+        if (selector == null)
+            return Proxy.NO_PROXY;
+        try {
+            List<Proxy> proxies = selector.select(URI.create("https://gateway.discord.gg/"));
+            if (proxies != null)
+                for (Proxy proxy : proxies)
+                    if (proxy != null && proxy.type() != Proxy.Type.DIRECT)
+                        return proxy;
+        } catch (RuntimeException ignored) { }
+        return Proxy.NO_PROXY;
+    }
+
+    private static okhttp3.OkHttpClient gatewayClient(Proxy proxy) {
         okhttp3.OkHttpClient.Builder builder = new okhttp3.OkHttpClient.Builder();
-        Proxy proxy = DiscordBotApi.discordProxy();
-        if (proxy != null) {
+        if (proxy != null && proxy.type() != Proxy.Type.DIRECT) {
             builder.proxy(proxy);
-            // O proxy corporativo pode demorar mais para concluir CONNECT + TLS do WebSocket.
             builder.connectTimeout(45, TimeUnit.SECONDS);
         } else {
-            builder.proxySelector(ProxySelector.getDefault());
+            builder.proxy(Proxy.NO_PROXY);
             builder.connectTimeout(20, TimeUnit.SECONDS);
         }
         return builder.readTimeout(0, TimeUnit.SECONDS)
@@ -216,8 +232,8 @@ final class DiscordBotGateway implements AutoCloseable {
                 : error instanceof javax.net.ssl.SSLException ? "TLS"
                 : error instanceof java.net.ProtocolException ? "protocolo"
                 : "transporte (" + error.getClass().getSimpleName() + ")";
-            Proxy configured = DiscordBotApi.discordProxy();
-            String route = configured == null ? "rota automática" : "proxy HTTPS explícito";
+            String route = gatewayProxy != null && gatewayProxy.type() != Proxy.Type.DIRECT
+                ? "proxy selecionado pelo Java" : "conexão direta";
             log.accept("Bot: falha no WebSocket Discord: " + kind
                 + (response == null ? "" : "; HTTP " + response.code())
                 + "; " + route
