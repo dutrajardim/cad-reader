@@ -6,10 +6,33 @@ import java.util.*;
 
 /** REST autenticado do bot. Só HTTP 429 é repetido; falhas ambíguas não repetem publicações. */
 class DiscordBotApi implements AutoCloseable {
+    /** O Discord usa somente HTTPS; proxy explícito evita depender da descoberta automática do OkHttp. */
+    static Proxy discordProxy() {
+        String host = System.getProperty("https.proxyHost", "").trim();
+        String port = System.getProperty("https.proxyPort", "").trim();
+        if (host.isEmpty()) {
+            host = System.getProperty("http.proxyHost", "").trim();
+            port = System.getProperty("http.proxyPort", "").trim();
+        }
+        if (!host.isEmpty()) {
+            try {
+                int value = Integer.parseInt(port);
+                if (value > 0 && value <= 65535)
+                    return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, value));
+            } catch (NumberFormatException ignored) { }
+        }
+        return null;
+    }
+    static okhttp3.OkHttpClient.Builder networkBuilder() {
+        okhttp3.OkHttpClient.Builder builder = new okhttp3.OkHttpClient.Builder();
+        Proxy proxy = discordProxy();
+        if (proxy != null) builder.proxy(proxy);
+        else builder.proxySelector(ProxySelector.getDefault());
+        return builder;
+    }
     private final String token;
     private final okhttp3.OkHttpClient client;
-    private static okhttp3.OkHttpClient defaultClient() { return new okhttp3.OkHttpClient.Builder()
-        .proxySelector(ProxySelector.getDefault())
+    private static okhttp3.OkHttpClient defaultClient() { return networkBuilder()
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
