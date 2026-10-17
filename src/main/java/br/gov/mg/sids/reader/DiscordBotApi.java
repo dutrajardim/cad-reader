@@ -9,6 +9,7 @@ class DiscordBotApi implements AutoCloseable {
     private final String token;
     private final okhttp3.OkHttpClient client;
     private static okhttp3.OkHttpClient defaultClient() { return new okhttp3.OkHttpClient.Builder()
+        .proxySelector(ProxySelector.getDefault())
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
