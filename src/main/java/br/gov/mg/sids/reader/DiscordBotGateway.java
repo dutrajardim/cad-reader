@@ -18,6 +18,7 @@ final class DiscordBotGateway implements AutoCloseable {
     private final Consumer<String> log;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
     private final okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
+        .proxySelector(ProxySelector.getDefault())
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).build();
     private volatile boolean closed;
@@ -188,6 +189,18 @@ final class DiscordBotGateway implements AutoCloseable {
             ws.close(code, "");
         }
         @Override public void onClosed(WebSocket ws, int code, String reason) { retry(ws, code); }
-        @Override public void onFailure(WebSocket ws, Throwable error, Response response) { retry(ws, 0); }
+        @Override public void onFailure(WebSocket ws, Throwable error, Response response) {
+            // Não registrar URLs, headers nem tokens: somente a categoria da falha.
+            String kind = error instanceof java.net.UnknownHostException ? "DNS"
+                : error instanceof java.net.ConnectException ? "conexão TCP/proxy"
+                : error instanceof java.net.SocketTimeoutException ? "timeout"
+                : error instanceof javax.net.ssl.SSLException ? "TLS"
+                : error instanceof java.net.ProtocolException ? "protocolo"
+                : "transporte (" + error.getClass().getSimpleName() + ")";
+            log.accept("Bot: falha no WebSocket Discord: " + kind
+                + (response == null ? "" : "; HTTP " + response.code())
+                + ". Confira proxy do sistema e acesso ao Gateway.");
+            retry(ws, 0);
+        }
     }
 }
