@@ -18,10 +18,10 @@ public final class ReaderBotStartupTest {
                 DiscordBotApi api=new DiscordBotApi(secret) {
                     int step;
                     @Override Object request(String method,String path,Object body)throws Exception {
-                        if(step++==phase) throw failure(403,Map.of("code",50001,"message",secret));
-                        if(path.equals("/oauth2/applications/@me")) return Map.of("id","456789");
-                        if(path.equals("/channels/234567")) return Map.of("guild_id","123456","type",15);
-                        return Map.of();
+                        if(step++==phase) throw failure(403,Java8.map("code",50001,"message",secret));
+                        if(path.equals("/oauth2/applications/@me")) return Java8.map("id","456789");
+                        if(path.equals("/channels/234567")) return Java8.map("guild_id","123456","type",15);
+                        return Java8.map();
                     }
                 };
                 CadSummary summary=new CadSummary(id -> new CompletableFuture<>());
@@ -36,7 +36,7 @@ public final class ReaderBotStartupTest {
                     }
                 }
             }
-            check(DiscordBotApi.failure(403,Map.of("code",secret,"message",secret)).getMessage().equals("Discord HTTP 403"),"Erro externo não injeta conteúdo no diagnóstico");
+            check(DiscordBotApi.failure(403,Java8.map("code",secret,"message",secret)).getMessage().equals("Discord HTTP 403"),"Erro externo não injeta conteúdo no diagnóstico");
             System.out.println("PASS início bot: 403 por etapa, código Discord, orientação e segredo omitido");
         } finally {
             try(java.util.stream.Stream<Path> paths=Files.walk(root)) {paths.sorted(Comparator.reverseOrder()).forEach(p->{try{Files.deleteIfExists(p);}catch(Exception ignored){}});}

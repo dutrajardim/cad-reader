@@ -30,7 +30,7 @@ final class DiscordBot implements AutoCloseable {
     DiscordBot(DiscordBotApi api, String guild, String forum, String role, CadSummary summary,
                Consumer<String> log) {
         if (!guild.matches("[0-9]{5,20}") || !forum.matches("[0-9]{5,20}") ||
-            (!role.isBlank() && !role.matches("[0-9]{5,20}")))
+            (!role.trim().isEmpty() && !role.matches("[0-9]{5,20}")))
             throw new IllegalArgumentException("Informe IDs válidos do servidor, fórum e cargo (opcional)");
         this.api = api;
         this.guild = guild;
@@ -84,16 +84,16 @@ final class DiscordBot implements AutoCloseable {
     }
 
     static Map<String, Object> commandDefinition() {
-        return Map.of("name", "cad-reader", "description", "Consultas CAD e limpeza de tópicos", "type", 1,
+        return Java8.map("name", "cad-reader", "description", "Consultas CAD e limpeza de tópicos", "type", 1,
                       "default_member_permissions", "0", "options",
-                      List.of(Map.of("type", 1, "name", "totais-por-natureza", "description",
+                      Java8.list(Java8.map("type", 1, "name", "totais-por-natureza", "description",
                                      "Total por natureza e unidade de área BM", "options",
-                                     List.of(Map.of("type", 3, "name", "filtro", "description",
+                                     Java8.list(Java8.map("type", 3, "name", "filtro", "description",
                                                     "Digite parte do nome do filtro CAD", "required", true,
                                                     "autocomplete", true))),
-                              Map.of("type", 1, "name", "limpar", "description",
+                              Java8.map("type", 1, "name", "limpar", "description",
                                      "Apagar TODAS as mensagens do tópico anteriores à data", "options",
-                                     List.of(Map.of("type", 3, "name", "antes-de", "description",
+                                     Java8.list(Java8.map("type", 3, "name", "antes-de", "description",
                                                     "Data exclusiva AAAA-MM-DD, horário Brasília", "required",
                                                     true)))));
     }
@@ -121,7 +121,7 @@ final class DiscordBot implements AutoCloseable {
         String type = BotJson.text(i, "type");
         Map<String, Object> data = BotJson.object(i.get("data"));
         if (!guild.equals(BotJson.text(i, "guild_id")) || !allowed(i, false)) {
-            callback(i, "4".equals(type) ? Map.of("type", 8, "data", Map.of("choices", List.of()))
+            callback(i, "4".equals(type) ? Java8.map("type", 8, "data", Java8.map("choices", Java8.list()))
                                            : message("Sem autorização para usar este bot.", true));
             return;
         }
@@ -146,7 +146,7 @@ final class DiscordBot implements AutoCloseable {
             callback(i, message("A limpeza exige Gerenciar mensagens neste tópico.", true));
             return;
         }
-        callback(i, Map.of("type", 5, "data", Map.of("flags", 64)));
+        callback(i, Java8.map("type", 5, "data", Java8.map("flags", 64)));
         work.submit(() -> {
             try {
                 if ("totais-por-natureza".equals(command))
@@ -179,7 +179,7 @@ final class DiscordBot implements AutoCloseable {
             if (p.testBit(3))
                 return true;
             String type = BotJson.text(BotJson.object(i.get("channel")), "type");
-            if (!Set.of("0", "5", "10", "11", "12").contains(type)) return false;
+            if (!Java8.set("0", "5", "10", "11", "12").contains(type)) return false;
             return p.testBit(10) &&
                 p.testBit(type.equals("10") || type.equals("11") || type.equals("12") ? 38 : 11);
         } catch (Exception e) {
@@ -197,22 +197,22 @@ final class DiscordBot implements AutoCloseable {
         for (Map.Entry<String, String> f : summary.filters().entrySet())
             if (normalize(f.getValue() + " " + f.getKey()).contains(normalized)) {
                 choices.add(
-                    Map.of("name", limit(f.getValue() + " (" + f.getKey() + ")", 100), "value", f.getKey()));
+                    Java8.map("name", limit(f.getValue() + " (" + f.getKey() + ")", 100), "value", f.getKey()));
                 if (choices.size() == 25)
                     break;
             }
-        callback(i, Map.of("type", 8, "data", Map.of("choices", choices)));
+        callback(i, Java8.map("type", 8, "data", Java8.map("choices", choices)));
     }
     private void sum(Map<String, Object> i, String filter) throws Exception {
         String text = summary.query(filter).get(90, TimeUnit.SECONDS);
         List<String> pages = pages(text);
         String key = remember(new Action(i, pages, null, null));
         edit(i,
-             payload(pages.get(0), true, pages.size() == 1 ? buttons(key, "Publicar aqui", 1) : List.of()));
+             payload(pages.get(0), true, pages.size() == 1 ? buttons(key, "Publicar aqui", 1) : Java8.list()));
         for (int n = 1; n < pages.size(); n++)
             api.request("POST", hook(i),
                         payload(pages.get(n), true,
-                                n == pages.size() - 1 ? buttons(key, "Publicar aqui", 1) : List.of()));
+                                n == pages.size() - 1 ? buttons(key, "Publicar aqui", 1) : Java8.list()));
     }
     private void previewCleanup(Map<String, Object> i, String date) throws Exception {
         LocalDate day;
@@ -240,7 +240,7 @@ final class DiscordBot implements AutoCloseable {
         Instant cutoff = day.atStartOfDay(ZONE).toInstant();
         List<String> ids = scan(channel, cutoff);
         if (ids.isEmpty()) {
-            edit(i, payload("Nenhuma mensagem anterior a " + day + " neste tópico.", true, List.of()));
+            edit(i, payload("Nenhuma mensagem anterior a " + day + " neste tópico.", true, Java8.list()));
             return;
         }
         String key = remember(new Action(i, null, ids, cutoff));
@@ -309,24 +309,24 @@ final class DiscordBot implements AutoCloseable {
             callback(i, message("Ação já utilizada.", true));
             return;
         }
-        callback(i, Map.of("type", 6));
+        callback(i, Java8.map("type", 6));
         work.submit(() -> {
             int deleted = 0;
             try {
                 if (cancel) {
-                    edit(i, payload("Ação cancelada.", true, List.of()));
+                    edit(i, payload("Ação cancelada.", true, Java8.list()));
                     return;
                 }
                 if (a.ids == null) {
-                    edit(i, payload("Publicando neste local…", true, List.of()));
+                    edit(i, payload("Publicando neste local…", true, Java8.list()));
                     for (String page : a.pages)
                         api.request("POST", "/channels/" + a.channel + "/messages",
-                                    payload(page, false, List.of()));
-                    edit(i, payload("Relatório publicado aqui.", true, List.of()));
+                                    payload(page, false, Java8.list()));
+                    edit(i, payload("Relatório publicado aqui.", true, Java8.list()));
                 } else {
                     validateThread(a.channel);
                     edit(i, payload("Limpeza em andamento: " + a.ids.size() + " mensagens selecionadas.",
-                                    true, List.of()));
+                                    true, Java8.list()));
                     List<String> recent = new ArrayList<>(), old = new ArrayList<>();
                     Instant bulkBoundary = Instant.now().minus(Duration.ofDays(14)).plusSeconds(60);
                     for (String id : a.ids) {
@@ -342,7 +342,7 @@ final class DiscordBot implements AutoCloseable {
                             delete(a.channel, batch.get(0));
                         else
                             api.request("POST", "/channels/" + a.channel + "/messages/bulk-delete",
-                                        Map.of("messages", batch));
+                                        Java8.map("messages", batch));
                         deleted += batch.size();
                     }
                     for (String id : old) {
@@ -353,7 +353,7 @@ final class DiscordBot implements AutoCloseable {
                     }
                     edit(i, payload("Limpeza concluída: " + deleted +
                                         " mensagens removidas ou já ausentes. Tópico preservado.",
-                                    true, List.of()));
+                                    true, Java8.list()));
                     log.accept("Bot: limpeza concluída; tópico=" + a.channel + "; mensagens=" + deleted);
                 }
             } catch (Exception e) {
@@ -420,20 +420,20 @@ final class DiscordBot implements AutoCloseable {
     private static Map<String, Object> payload(String text, boolean ephemeral, List<Object> components) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("content", text);
-        data.put("allowed_mentions", Map.of("parse", List.of()));
+        data.put("allowed_mentions", Java8.map("parse", Java8.list()));
         data.put("components", components);
         if (ephemeral)
             data.put("flags", 64);
         return data;
     }
     private static Map<String, Object> message(String text, boolean ephemeral) {
-        return Map.of("type", 4, "data", payload(text, ephemeral, List.of()));
+        return Java8.map("type", 4, "data", payload(text, ephemeral, Java8.list()));
     }
     private static List<Object> buttons(String key, String label, int style) {
-        return List.of(Map.of(
+        return Java8.list(Java8.map(
             "type", 1, "components",
-            List.of(Map.of("type", 2, "style", style, "label", label, "custom_id", "action:" + key),
-                    Map.of("type", 2, "style", 2, "label", "Cancelar", "custom_id", "cancel:" + key))));
+            Java8.list(Java8.map("type", 2, "style", style, "label", label, "custom_id", "action:" + key),
+                    Java8.map("type", 2, "style", 2, "label", "Cancelar", "custom_id", "cancel:" + key))));
     }
     private void callback(Map<String, Object> i, Object payload) throws Exception {
         api.request("POST",
@@ -448,7 +448,7 @@ final class DiscordBot implements AutoCloseable {
     }
     private void safeEdit(Map<String, Object> i, String message) {
         try {
-            edit(i, payload(message, true, List.of()));
+            edit(i, payload(message, true, Java8.list()));
         } catch (Exception e) {
             log.accept("Bot: operação interrompida; não foi possível atualizar resposta privada.");
         }

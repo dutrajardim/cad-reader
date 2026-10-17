@@ -36,7 +36,7 @@ public final class CadReaderWindow extends JFrame {
     private final javax.swing.Timer displayTimer = new javax.swing.Timer(150, e -> flushDisplay());
     private JTable table;
     private final ExecutorService tasks = Executors.newCachedThreadPool();
-    private final Path root = Path.of(System.getProperty("user.home"), ".java-cad-reader");
+    private final Path root = java.nio.file.Paths.get(System.getProperty("user.home"), ".java-cad-reader");
     private final JPasswordField botToken = new JPasswordField();
     private final JTextField botGuild = new JTextField(), botForum = new JTextField(), botRole = new JTextField();
     private volatile DiscordBot bot;
@@ -72,6 +72,8 @@ public final class CadReaderWindow extends JFrame {
         button(profileButtons, "Abrir perfil", this::loadProfile);
         button(profileButtons, "Salvar perfil", this::saveProfile);
         button(profileButtons, "Remover perfil", this::removeProfile);
+        button(profileButtons, "Exportar perfil", () -> transferProfile(false));
+        button(profileButtons, "Importar perfil", () -> transferProfile(true));
         field(config, "Gerenciar perfil neste computador", profileButtons);
         field(config, "Servidor / domínio CAD", host);
         field(config, "Porta TCP", port);
@@ -392,6 +394,66 @@ public final class CadReaderWindow extends JFrame {
         });
     }
 
+    /** Transporta somente o perfil salvo, validando os segredos fora da thread da interface. */
+    private void transferProfile(boolean importing) {
+        if (profileBusy) {
+            info("Aguarde a operação do perfil terminar.");
+            return;
+        }
+        if (importing && reader != null) {
+            info("Desconecte antes de importar outro perfil.");
+            return;
+        }
+        Path local = profilePath();
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(importing ? "Importar perfil — informe antes a senha de proteção do arquivo"
+                                         : "Exportar perfil salvo");
+        chooser.setSelectedFile(local.getFileName().toFile());
+        int result = importing ? chooser.showOpenDialog(this) : chooser.showSaveDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION)
+            return;
+        Path external = chooser.getSelectedFile().toPath().toAbsolutePath();
+        Path source = importing ? external : local;
+        Path destination = importing ? local : external;
+        if (source.toAbsolutePath().normalize().equals(destination.toAbsolutePath().normalize())) {
+            info("Escolha um arquivo diferente do perfil local.");
+            return;
+        }
+        if (Files.exists(destination)
+            && JOptionPane.showConfirmDialog(this, "Substituir " + destination.getFileName() + "?",
+                                             "Substituir perfil", JOptionPane.YES_NO_OPTION)
+                   != JOptionPane.YES_OPTION)
+            return;
+        String name = profile.getEditor().getItem().toString().trim();
+        char[] pass = protection.getPassword();
+        profileBusy = true;
+        tasks.submit(() -> {
+            String error = null;
+            try {
+                new ProfileStore(source).copyTo(destination, pass);
+            } catch (Exception e) {
+                error = e instanceof IllegalArgumentException ? e.getMessage()
+                                                              : "Não foi possível ler ou gravar o arquivo de perfil.";
+            } finally {
+                Arrays.fill(pass, '\0');
+            }
+            String failure = error;
+            SwingUtilities.invokeLater(() -> {
+                profileBusy = false;
+                if (!isDisplayable())
+                    return;
+                if (failure != null) {
+                    info(failure);
+                    return;
+                }
+                if (importing)
+                    refreshProfiles(name);
+                log(importing ? "Perfil importado. Use Abrir perfil com a mesma senha de proteção."
+                              : "Perfil salvo exportado. No outro computador, importe com a mesma senha de proteção.");
+            });
+        });
+    }
+
     /** Remove apenas o perfil escolhido; histórico e fila de publicação são preservados. */
     private void removeProfile() {
         if (profileBusy) {
@@ -572,6 +634,11 @@ public final class CadReaderWindow extends JFrame {
         long currentGeneration = generation;
         boolean publishing = publish.isSelected();
         String url = new String(webhook.getPassword()).trim();
+        String lookupToken = new String(botToken.getPassword()).trim();
+        if (publishing && lookupToken.isEmpty()) {
+            info("Configure o token do bot para procurar tópicos existentes antes de publicar.");
+            return;
+        }
         monitoring = true;
         publish.setEnabled(false);
         log("Preparando monitoramento; a carga inicial será somente local…");
@@ -579,8 +646,10 @@ public final class CadReaderWindow extends JFrame {
             DiscordPublisher created = null;
             try {
                 monitor.setResourceFilter(scope);
-                if (publishing)
+                if (publishing) {
                     created = new DiscordPublisher(url, root, this::log, null, scope);
+                    created.setTopicLookup(new DiscordTopicLookup(lookupToken, url));
+                }
                 DiscordPublisher publisher = created;
                 SwingUtilities.invokeLater(() -> {
                     if (reader != session || generation != currentGeneration) {
@@ -629,7 +698,7 @@ public final class CadReaderWindow extends JFrame {
                 Files.createDirectories(root);
                 if (!Files.exists(journal))
                     AppFiles.write(journal, "recebido_utc;viatura;chamada;evento;detalhes\n");
-                Files.writeString(journal,
+                Java8.writeString(journal,
                                   csv(event.observed) + ";" + csv(event.resource) + ";" + csv(event.number)
                                       + ";" + csv(event.title) + ";" + csv(event.body) + "\n",
                                   StandardOpenOption.APPEND);

@@ -2,11 +2,13 @@
 
 Aplicação Java desktop que consulta ocorrências e recursos do CAD pelos filtros autorizados ao usuário. Mostra a carga inicial e as atualizações, registra uma cronologia local e pode publicar em um fórum do Discord, com um tópico por viatura/recurso. Não altera ocorrências, não empenha viaturas e não preenche REDS automaticamente.
 
+Os tópicos do Discord usam o prefixo normalizado da viatura: `UR05471 (2BBM)` e `ur5471 (JUATUB)` compartilham o tópico `VTR UR05471`; `ABT054` gera `VTR ABT00054`. O número tem no mínimo cinco dígitos, preservando números maiores. A identidade do tópico independe do ID do recurso no CAD. Nomes fora do padrão de letras seguidas de número são preservados em maiúsculas. Associações locais antigas são reaproveitadas quando reconhecidas pelo prefixo original ou ID do recurso; tópicos duplicados já existentes não são mesclados. Se ambos mudaram antes dessa migração, o registro antigo contém somente o hash e pode não ser reconhecido. Viaturas com o mesmo prefixo normalizado compartilham o tópico no mesmo webhook, mesmo com sufixos de unidade diferentes.
+
 ## Baixar e executar (Windows e Linux)
 
 A aplicação tem interface gráfica. Informe usuário e senha do CAD na própria janela, depois de abrir o programa.
 
-Requisitos: Java 11 ou superior no `PATH`, ambiente gráfico e acesso de rede ao CAD. O mesmo JAR funciona no Windows e no Linux. Para executar, não é necessário instalar Maven ou Python. O Java não está incluído no download; no Linux, use uma instalação com suporte à interface gráfica, em vez de somente o pacote headless.
+Requisitos: Java 8 (1.8) atualizado ou superior no `PATH`, ambiente gráfico e acesso de rede ao CAD. O mesmo JAR funciona no Windows e no Linux. Para executar, não é necessário instalar Maven ou Python. O Java não está incluído no download; no Linux, use uma instalação com suporte à interface gráfica, em vez de somente o pacote headless.
 
 ### Baixar e abrir no Windows
 
@@ -26,7 +28,7 @@ Para abrir novamente sem baixar, use no PowerShell ou no Prompt de Comando:
 java -jar .\cad-reader.jar
 ```
 
-Se `java` não for reconhecido, instale Java 11 ou superior, configure seu diretório `bin` no `PATH` e abra um novo terminal. Confira com `java -version`.
+Se `java` não for reconhecido, instale Java 8 ou superior, configure seu diretório `bin` no `PATH` e abra um novo terminal. Confira com `java -version`.
 
 ### Baixar e abrir no Linux
 
@@ -45,9 +47,15 @@ Para abrir novamente sem baixar:
 java -jar ./cad-reader.jar
 ```
 
-Se `java` não for encontrado, instale Java 11 ou superior com suporte gráfico e verifique o `PATH` com `java -version`.
+Se `java` não for encontrado, instale Java 8 ou superior com suporte gráfico e verifique o `PATH` com `java -version`.
 
 ### Download manual e atualizações
+
+A publicação exige o token em **Configurar bot** para procurar tópicos existentes antes de criar outro. A busca identifica o fórum pelo webhook e considera tópicos ativos e arquivados, com normalização dos nomes antigos. Não é necessário clicar em **Iniciar bot** para essa busca. O bot precisa de acesso ao fórum e leitura do histórico. Se a busca falhar, o envio permanece pendente; após corrigir token/permissões, use **Reenviar pendentes**. Tópicos encontrados são associados localmente para os próximos envios. Não há coordenação de criação simultânea entre PCs nem mesclagem de duplicados existentes. Tópicos arquivados encontrados são reutilizados pelo webhook; se estiverem bloqueados ou o Discord recusar o envio, a fila pausa.
+
+Referência das consultas: [tópicos ativos](https://docs.discord.com/developers/resources/guild#list-active-guild-threads) e [tópicos públicos arquivados](https://docs.discord.com/developers/resources/channel#list-public-archived-threads).
+
+Para transportar um perfil, primeiro use **Salvar perfil** e depois **Exportar perfil**, informando sua senha de proteção. No outro computador, escolha um nome de perfil local, informe a mesma senha e use **Importar perfil** para selecionar o arquivo. Depois clique em **Abrir perfil**. A exportação inclui somente as configurações salvas; alterações ainda não salvas não são incluídas. Webhook, token do bot e senha CAD opcional permanecem criptografados; as demais preferências ficam em texto simples, como no perfil local. Histórico, fila e associações de tópicos do Discord não são transportados.
 
 Também é possível abrir a [Release mais recente](https://github.com/dutrajardim/cad-reader/releases/latest) no navegador e baixar **cad-reader.jar** em **Assets**. Não é necessário extrair ZIP. Os comandos acima pressupõem um repositório público; um repositório privado exige autenticação para baixar.
 
@@ -66,7 +74,7 @@ mvn --batch-mode --no-transfer-progress clean verify
 java -jar target/java-cad-reader-1.0.0.jar
 ```
 
-O projeto usa apenas bibliotecas do JDK. O JAR contém a aplicação e o manifesto executável; não precisa das pastas do projeto original que ficam fora deste repositório.
+O JAR contém a aplicação, o manifesto executável e as bibliotecas de HTTP/WebSocket necessárias; não precisa das pastas do projeto original que ficam fora deste repositório.
 
 ## Builds e versões automáticas
 

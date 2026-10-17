@@ -32,7 +32,7 @@ final class AppFiles {
                 Files.setPosixFilePermissions(temp, PosixFilePermissions.fromString("rw-------"));
             } catch (UnsupportedOperationException ignored) {
             }
-            Files.writeString(temp, data, StandardCharsets.UTF_8);
+            Java8.writeString(temp, data, StandardCharsets.UTF_8);
             try {
                 Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {

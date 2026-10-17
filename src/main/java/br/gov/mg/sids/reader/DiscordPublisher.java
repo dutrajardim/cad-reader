@@ -29,6 +29,9 @@ final class DiscordPublisher implements AutoCloseable {
     private final CadResourceFilter scope;
     private final long batchWindowMillis;
     private final Map<String, OpenBatch> openBatches = new HashMap<>();
+    private DiscordTopicLookup topicLookup;
+
+    void setTopicLookup(DiscordTopicLookup lookup) { topicLookup = lookup; }
 
     /** Cada arquivo é uma mensagem durável; a janela não se renova a cada evento. */
     private static final class OpenBatch {
@@ -377,10 +380,22 @@ final class DiscordPublisher implements AutoCloseable {
             pendingCount.decrementAndGet();
             return;
         }
-        String topicKey = p.getProperty("topicKey", p.getProperty("resource"));
+        String resourceId = p.getProperty("resource");
+        String prefix = p.getProperty("prefix", "");
+        String topicKey = CadMonitor.Event.topicKey(prefix, resourceId);
         String thread = threads.getProperty(topicKey);
+        if (thread == null && !prefix.trim().isEmpty())
+            thread = threads.getProperty("vtr." + AppFiles.hash(prefix.trim().toUpperCase(Locale.ROOT)));
+        if (thread == null && p.getProperty("topicKey") != null)
+            thread = threads.getProperty(p.getProperty("topicKey"));
         if (thread == null)
             thread = threads.getProperty(p.getProperty("resource"));
+        if (thread == null && topicLookup != null)
+            thread = topicLookup.find(prefix);
+        if (thread != null && !thread.equals(threads.getProperty(topicKey))) {
+            threads.setProperty(topicKey, thread);
+            AppFiles.save(directory.resolve("topics.properties"), threads);
+        }
         if (thread != null
             && p.getProperty("fingerprint").equals(threads.getProperty("last." + p.getProperty("key")))) {
             removePending(file);
@@ -397,7 +412,9 @@ final class DiscordPublisher implements AutoCloseable {
             AppFiles.save(directory.resolve("topics.properties"), threads);
             report("Discord: tópico salvo não existe mais; criando novo tópico para "
                    + p.getProperty("prefix", p.getProperty("resource")) + ".");
-            response = transport.send(webhook + "?wait=true", readablePayload(p.getProperty("create")));
+            String existing = topicLookup == null ? null : topicLookup.find(prefix);
+            response = transport.send(webhook + "?wait=true" + (existing == null ? "" : "&thread_id=" + existing),
+                                      readablePayload(p.getProperty(existing == null ? "create" : "reuse")));
         }
         if (response.status == 429) {
             blocked = true;
@@ -467,10 +484,14 @@ final class DiscordPublisher implements AutoCloseable {
     private static String networkReason(Throwable error) {
         if (error instanceof MissingConfirmation)
             return "HTTP " + ((MissingConfirmation)error).status + " recebido sem ID do canal";
+        if (error instanceof DiscordBotApi.ApiFailure) {
+            DiscordBotApi.ApiFailure failure = (DiscordBotApi.ApiFailure)error;
+            return "busca de tópicos: HTTP " + failure.status
+                + (failure.code.isEmpty() ? "" : "; código Discord=" + failure.code);
+        }
         Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Throwable cause = error; cause != null && visited.add(cause); cause = cause.getCause()) {
-            if (cause instanceof java.net.http.HttpTimeoutException
-                || cause instanceof java.net.SocketTimeoutException)
+            if (cause instanceof java.net.SocketTimeoutException)
                 return "tempo limite de conexão/resposta";
             if (cause instanceof java.net.UnknownHostException
                 || cause instanceof java.nio.channels.UnresolvedAddressException)
@@ -570,6 +591,8 @@ final class DiscordPublisher implements AutoCloseable {
             openBatches.clear();
         }
         worker.shutdownNow();
+        if (topicLookup != null)
+            topicLookup.close();
         try {
             worker.awaitTermination(3, TimeUnit.SECONDS);
             lock.release();

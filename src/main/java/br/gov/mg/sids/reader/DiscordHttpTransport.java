@@ -64,7 +64,7 @@ final class DiscordHttpTransport implements DiscordPublisher.Transport, AutoClos
             String response = "";
             if (stream != null) {
                 try (InputStream input = stream) {
-                    response = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                    response = new String(Java8.readAllBytes(input), StandardCharsets.UTF_8);
                 }
             }
             return new DiscordPublisher.Result(status, response, retryAfter == null ? "" : retryAfter);

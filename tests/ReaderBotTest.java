@@ -29,24 +29,24 @@ public final class ReaderBotTest {
         final List<Map<String, Object>> publications = new CopyOnWriteArrayList<>();
         volatile int status;
         FakeApi() {
-            super("a".repeat(30));
+            super(Java8.repeat("a", 30));
         }
         @SuppressWarnings("unchecked")
         @Override
         Object request(String method, String path, Object body) throws Exception {
             if (path.equals("/channels/" + CHANNEL))
-                return Map.of("guild_id", GUILD, "parent_id", FORUM, "type", 11);
+                return Java8.map("guild_id", GUILD, "parent_id", FORUM, "type", 11);
             if (path.contains("/messages?"))
                 return new ArrayList<>(messages);
             if (method.equals("DELETE")) {
                 deletes.add(path.substring(path.lastIndexOf('/') + 1));
                 if (status != 0)
                     throw new ApiFailure(status);
-                return Map.of();
+                return Java8.map();
             }
             if (path.endsWith("bulk-delete")) {
                 deletes.addAll((List<String>)BotJson.object(body).get("messages"));
-                return Map.of();
+                return Java8.map();
             }
             if (method.equals("POST") && path.endsWith("/messages"))
                 publications.add(BotJson.object(body));
@@ -54,20 +54,20 @@ public final class ReaderBotTest {
                 callbacks.add(BotJson.object(body));
             if (method.equals("PATCH"))
                 edits.add(BotJson.object(body));
-            return Map.of();
+            return Java8.map();
         }
     }
     static Map<String, Object> interaction(String id, int type, String permissions,
                                            Map<String, Object> data) {
-        return Map.of("app_permissions", "8", "id", id, "type", type, "guild_id", GUILD, "channel_id",
+        return Java8.map("app_permissions", "8", "id", id, "type", type, "guild_id", GUILD, "channel_id",
                       CHANNEL, "application_id", "456789", "token", "fake", "member",
-                      Map.of("permissions", permissions, "roles", List.of(), "user", Map.of("id", "567890")),
+                      Java8.map("permissions", permissions, "roles", Java8.list(), "user", Java8.map("id", "567890")),
                       "data", data);
     }
     static Map<String, Object> cleanup(String date) {
-        return Map.of(
+        return Java8.map(
             "name", "cad-reader", "options",
-            List.of(Map.of("name", "limpar", "options", List.of(Map.of("name", "antes-de", "value", date)))));
+            Java8.list(Java8.map("name", "limpar", "options", Java8.list(Java8.map("name", "antes-de", "value", date)))));
     }
     static void await(java.util.function.BooleanSupplier condition) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
@@ -89,14 +89,14 @@ public final class ReaderBotTest {
         String report = CadSummary.format("Demandas",
                                           xml("<rtn><resumosChamadas>" + call + call +
                                               "<i><idChamada>2</idChamada></i></resumosChamadas></rtn>"),
-                                          Map.of("7", "Unidade A"));
+                                          Java8.map("7", "Unidade A"));
         check(report.contains("TOTAL: 2 chamadas") && report.contains("Unidade A (7) — 1 chamadas") &&
                   report.contains("Área BM não informada") && !report.contains("99") &&
                   !report.contains("Unidade ID 8"),
               "Deduplica chamadas e usa área BM, não unidade responsável nem PM");
         check(report.contains("S01 Animal: 1") && report.contains("S02 Árvore: 1"),
               "Naturezas contadas sem duplicar chamados");
-        String longText = "linha 🚒\n".repeat(1000);
+        String longText = Java8.repeat("linha 🚒\n", 1000);
         check(String.join("", DiscordBot.pages(longText)).equals(longText) &&
                   DiscordBot.pages(longText).stream().allMatch(p -> p.length() <= 1800),
               "Relatórios longos divididos sem perda");
@@ -106,9 +106,9 @@ public final class ReaderBotTest {
         String old = DiscordBot.snowflake(Instant.now().minus(Duration.ofDays(20)));
         String recent = DiscordBot.snowflake(cutoff.minusSeconds(30));
         String newer = DiscordBot.snowflake(cutoff.plusSeconds(30));
-        api.messages.add(Map.of("id", recent));
-        api.messages.add(Map.of("id", old));
-        api.messages.add(Map.of("id", newer));
+        api.messages.add(Java8.map("id", recent));
+        api.messages.add(Java8.map("id", old));
+        api.messages.add(Java8.map("id", newer));
         try (DiscordBot bot = new DiscordBot(
                  api, GUILD, FORUM, "",
                  new CadSummary(id -> CompletableFuture.completedFuture(xmlUnchecked("<rtn/>"))), m -> {})) {
@@ -121,11 +121,11 @@ public final class ReaderBotTest {
             Map<String, Object> row = BotJson.object(BotJson.array(preview.get("components")).get(0));
             String button =
                 BotJson.text(BotJson.object(BotJson.array(row.get("components")).get(0)), "custom_id");
-            bot.accept(interaction("2", 3, "8200", Map.of("custom_id", button)));
+            bot.accept(interaction("2", 3, "8200", Java8.map("custom_id", button)));
             await(() -> api.deletes.size() == 2);
-            check(api.deletes.containsAll(List.of(old, recent)) && !api.deletes.contains(newer),
+            check(api.deletes.containsAll(Java8.list(old, recent)) && !api.deletes.contains(newer),
                   "Apaga mensagens de todos autores somente anteriores ao corte");
-            bot.accept(interaction("3", 3, "8200", Map.of("custom_id", button)));
+            bot.accept(interaction("3", 3, "8200", Java8.map("custom_id", button)));
             await(() -> api.callbacks.size() >= 3);
             check(api.deletes.size() == 2, "Confirmação de uso único");
             int edits = api.edits.size();
@@ -150,23 +150,23 @@ public final class ReaderBotTest {
         try (DiscordBot bot = new DiscordBot(sumApi, GUILD, FORUM, "", service, m -> {})) {
             bot.accept(interaction(
                 "10", 4, "8",
-                Map.of("options",
-                       List.of(Map.of("options", List.of(Map.of("focused", true, "value", "reprimidas")))))));
+                Java8.map("options",
+                       Java8.list(Java8.map("options", Java8.list(Java8.map("focused", true, "value", "reprimidas")))))));
             await(() -> sumApi.callbacks.size() == 1);
             check(BotJson.write(sumApi.callbacks.get(0)).contains("Demandas reprimidas (12)"),
                   "Autocomplete apresenta nome e ID");
             bot.accept(
                 interaction("11", 2, "8",
-                            Map.of("name", "cad-reader", "options",
-                                   List.of(Map.of("name", "totais-por-natureza", "options",
-                                                  List.of(Map.of("name", "filtro", "value", "12")))))));
+                            Java8.map("name", "cad-reader", "options",
+                                   Java8.list(Java8.map("name", "totais-por-natureza", "options",
+                                                  Java8.list(Java8.map("name", "filtro", "value", "12")))))));
             await(() -> !sumApi.edits.isEmpty());
             check(sumApi.publications.isEmpty(), "Relatório inicialmente privado");
             Map<String, Object> row =
                 BotJson.object(BotJson.array(sumApi.edits.get(0).get("components")).get(0));
             String publish =
                 BotJson.text(BotJson.object(BotJson.array(row.get("components")).get(0)), "custom_id");
-            bot.accept(interaction("12", 3, "8", Map.of("custom_id", publish)));
+            bot.accept(interaction("12", 3, "8", Java8.map("custom_id", publish)));
             await(() -> sumApi.publications.size() == 1);
             check(BotJson.text(sumApi.publications.get(0), "content").contains("Totais de ocorrências por natureza — ")
                       && BotJson.text(sumApi.publications.get(0), "content").contains("TOTAL: 1 chamadas") &&
@@ -179,7 +179,7 @@ public final class ReaderBotTest {
             settings.setProperty("botToken", "segredo-bot-teste");
             ProfileStore store = new ProfileStore(profile);
             store.save(settings, "", "protecao-teste".toCharArray());
-            check(!java.nio.file.Files.readString(profile).contains("segredo-bot-teste") &&
+            check(!Java8.readString(profile).contains("segredo-bot-teste") &&
                       store.load("protecao-teste".toCharArray())
                           .getProperty("botToken")
                           .equals("segredo-bot-teste"),

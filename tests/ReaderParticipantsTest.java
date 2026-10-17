@@ -47,7 +47,7 @@ public final class ReaderParticipantsTest {
         List<String> queries = new ArrayList<>();
         CadMonitor monitor = new CadMonitor(events::add);
         monitor.setParticipantsRequest(queries::add);
-        monitor.setResourceFilter(new CadResourceFilter("1", Set.of("7"), Set.of("9")));
+        monitor.setResourceFilter(new CadResourceFilter("1", Java8.set("7"), Java8.set("9")));
         monitor.accept(xml("<rtnRecuperarResumosChamadasAtivas><resumosChamadas><i>"
                            + "<idChamada>10</idChamada><numeroChamada>2026-10</numeroChamada>"
                            + "</i></resumosChamadas></rtnRecuperarResumosChamadasAtivas>"));
@@ -57,7 +57,7 @@ public final class ReaderParticipantsTest {
         check(queries.isEmpty(), "Carga inicial não consulta envolvidos");
         update(monitor, "20", "DESPACHADO", true);
         update(monitor, "21", "DESPACHADO", true);
-        check(queries.equals(List.of("10")), "Duas viaturas compartilham uma consulta");
+        check(queries.equals(Java8.list("10")), "Duas viaturas compartilham uma consulta");
         String people
             = person("1", "Maria", "(31) 99999-1234", true) + person("2", "João", "32101234", false);
         String response = "<rtnRecuperarEnvolvidosChamada readerCallId='10'><envolvidosChamada>" + people

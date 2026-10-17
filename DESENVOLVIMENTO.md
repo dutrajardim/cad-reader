@@ -2,13 +2,13 @@
 
 ## Compilação e escopo
 
-JDK 11+, Maven, Swing e bibliotecas padrão do Java. Não depende das classes descompiladas do projeto principal. `mvn package` produz o JAR executável. Sem argumentos, o ponto de entrada abre a interface; com opções CAD, executa o leitor no terminal.
+JDK 11+ para compilar, Maven e Swing; execução em Java 8 ou superior. Não depende das classes descompiladas do projeto principal. `mvn package` produz o JAR executável. Sem argumentos, o ponto de entrada abre a interface; com opções CAD, executa o leitor no terminal.
 
 A aplicação observa estados recebidos do CAD. Não escreve atendimentos, não executa triggers remotos, não sincroniza mensagens humanas do Discord e não confirma ciência individual dos militares.
 
 ## Repositório independente e build
 
-A raiz publicada é o conteúdo de `java-cad-reader`. Compilação: `mvn clean verify`, com JDK 11+ e Maven 3.6.3+. O `maven.compiler.release=11` verifica também a compatibilidade com as APIs do Java 11 ao compilar em JDKs mais novos. A entrada do JAR é `br.gov.mg.sids.reader.CadXmppReader`; não há dependências externas de execução.
+A raiz publicada é o conteúdo de `java-cad-reader`. Compilação: `mvn clean verify`, com JDK 11+ e Maven 3.6.3+. O `maven.compiler.release=8` verifica também a compatibilidade com as APIs do Java 8 ao compilar em JDKs mais novos. A entrada do JAR é `br.gov.mg.sids.reader.CadXmppReader`; OkHttp e suas dependências são incorporados ao JAR pelo Maven Shade; não é necessário instalar bibliotecas no computador de execução.
 
 O workflow `.github/workflows/build.yml` valida Linux/Windows, disponibiliza o JAR como artefato e publica esse mesmo arquivo como `cad-reader.jar` em uma Release por commit de `main`. O endereço de download da Release mais recente permanece fixo; pull requests não publicam. Veja [README.md](README.md) para publicação/download e [TESTES.md](TESTES.md) para os cenários automatizados. As referências ao cliente original abaixo são contexto histórico da análise; o código original não é distribuído nem necessário para o build.
 
@@ -176,7 +176,7 @@ A cor dos embeds é determinística pelos últimos oito dígitos do número da c
 
 ## Bot de comandos
 
-`DiscordBot` recebe interações de `/cad-reader totais-por-natureza` e `/cad-reader limpar`; `DiscordBotGateway` usa WebSocket v10 do JDK, intent 0, heartbeat com ACK, sequência e retomada de sessão. Desconexões recuperáveis têm retentativa com atraso; erros terminais exigem reinício. Não há Message Content intent nem servidor HTTP público. `BotJson` interpreta JSON com limite de profundidade e `DiscordBotApi` executa REST com TLS padrão, timeout e espera de HTTP 429. Não usa o modo insecure do CAD. Tokens e URLs de interação não entram no log.
+`DiscordBot` recebe interações de `/cad-reader totais-por-natureza` e `/cad-reader limpar`; `DiscordBotGateway` usa WebSocket v10 via OkHttp compatível com Java 8, intent 0, heartbeat com ACK, sequência e retomada de sessão. Desconexões recuperáveis têm retentativa com atraso; erros terminais exigem reinício. Não há Message Content intent nem servidor HTTP público. `BotJson` interpreta JSON com limite de profundidade e `DiscordBotApi` executa REST com TLS padrão, timeout e espera de HTTP 429. Não usa o modo insecure do CAD. Tokens e URLs de interação não entram no log.
 
 O registro é por servidor, via POST de um único comando, preservando outros comandos da aplicação. `default_member_permissions=0` exige configuração de acesso nas Integrações do Discord. O runtime aceita administradores/Gerenciar servidor ou o cargo configurado. Limpeza exige também Gerenciar mensagens; publicação confere permissão de envio do usuário e a API aplica as permissões do bot. Todas as interações precisam pertencer ao servidor configurado. Ações ficam em memória, vinculadas a usuário/canal, com UUID, expiração de dez minutos e consumo atômico; botões não são utilizáveis após reinício. Há lock local por aplicação Discord.
 
@@ -189,3 +189,5 @@ Operações longas usam um executor serial, separado dos dois workers que respon
 ### Controles do bot na interface
 
 `Configurar bot` usa campos temporários e só aplica os valores ao confirmar, mesmo sem sessão CAD. `Iniciar bot` é uma ação separada, habilitada após receber o catálogo. `Parar bot` conserva a referência até terminar o fechamento em background, bloqueando início/configuração concorrentes. `refreshBotControls` roda no EDT e consulta `hasFilters()` sem copiar o catálogo a cada atualização. O indicador Bot mostra o estado exposto por `DiscordBotGateway` (conexão, retomada, recusa ou parada), além dos estados locais de início/encerramento. O botão Ajuda apresenta instruções de instalação e comandos. O perfil persiste IDs e token cifrado; cancelar o diálogo não altera dados e abrir um perfil não inicia o bot.
+
+A distribuição usa bytecode Java 8 (`--release 8`), incluindo bibliotecas no JAR. Os testes podem compilar em JDK 8 ou mais recente; o CI compila a aplicação em JDK 11 e testa execução em Java 8 e Java 11 no Windows/Linux.

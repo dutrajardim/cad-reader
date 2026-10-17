@@ -10,8 +10,8 @@ final class CadResourceFilter {
 
     CadResourceFilter(String id, Set<String> units, Set<String> types) {
         this.id = id;
-        this.units = Set.copyOf(units);
-        this.types = Set.copyOf(types);
+        this.units = Java8.setCopy(units);
+        this.types = Java8.setCopy(types);
     }
     static CadResourceFilter from(Element filter) {
         return new CadResourceFilter(
@@ -30,6 +30,6 @@ final class CadResourceFilter {
         return matches(CadXml.text(resource, "idUnidadeServico"), CadXml.text(resource, "idTipoRecurso"));
     }
     boolean matches(String unit, String type) {
-        return !type.isBlank() && units.contains(unit) && (types.isEmpty() || types.contains(type));
+        return !type.trim().isEmpty() && units.contains(unit) && (types.isEmpty() || types.contains(type));
     }
 }

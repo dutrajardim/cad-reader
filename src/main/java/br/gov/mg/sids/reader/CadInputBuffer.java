@@ -16,7 +16,8 @@ final class CadInputBuffer extends BufferedInputStream {
      */
     @Override
     public synchronized int read(byte[] bytes, int offset, int length) throws IOException {
-        Objects.checkFromIndexSize(offset, length, bytes.length);
+        if (offset < 0 || length < 0 || offset > bytes.length - length)
+            throw new IndexOutOfBoundsException();
         if (length == 0)
             return 0;
         if (count > pos)

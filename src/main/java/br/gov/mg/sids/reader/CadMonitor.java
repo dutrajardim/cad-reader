@@ -81,7 +81,7 @@ final class CadMonitor {
                         = message.getOwnerDocument().getImplementation().createDocument(null, null, null);
                     Element contact = document.createElementNS(CadXml.CAD, "envolvidoChamada");
                     contact.setAttribute("id", person.getAttribute("id"));
-                    for (String field : List.of("idEnvolvidoChamada", "nome", "telefone", "solicitante")) {
+                    for (String field : Java8.list("idEnvolvidoChamada", "nome", "telefone", "solicitante")) {
                         Element value = document.createElementNS(CadXml.CAD, field);
                         value.setTextContent(CadXml.text(person, field));
                         contact.appendChild(value);
@@ -387,7 +387,7 @@ final class CadMonitor {
                         : "DADOS DA OCORRÊNCIA ATUALIZADOS";
         sink.accept(new Event(id, resource, number, key, fingerprint, title, body, links,
                               Instant.now().toString(), CadXml.text(r, "idUnidadeServico"),
-                              CadXml.text(r, "idTipoRecurso"), publishing, compact.toString().stripTrailing(),
+                              CadXml.text(r, "idTipoRecurso"), publishing, Java8.stripTrailing(compact.toString()),
                               locationChanged ? links : ""));
         return true;
     }
@@ -427,7 +427,7 @@ final class CadMonitor {
             }
             for (Element item : ordered) {
                 String description = CadXml.text(item, "descricao");
-                if (description.isBlank())
+                if (description.trim().isEmpty())
                     continue;
                 String date = CadXml.text(item, "dataHoraInclusao");
                 String identifier = item.getAttribute("id");
@@ -521,7 +521,7 @@ final class CadMonitor {
             List<String> lines = new ArrayList<>();
             for (Element person : people) {
                 String name = CadXml.text(person, "nome"), phone = CadXml.text(person, "telefone");
-                if (name.isBlank() && phone.isBlank())
+                if (name.trim().isEmpty() && phone.trim().isEmpty())
                     continue;
                 String identity = CadXml.text(person, "idEnvolvidoChamada");
                 if (identity.isEmpty())
@@ -537,8 +537,8 @@ final class CadMonitor {
                                || "1".equals(CadXml.text(person, "solicitante")))
                                   ? "Solicitante"
                                   : "Envolvido";
-                text += ": " + safeContact(name.isBlank() ? "nome não informado" : name);
-                if (!phone.isBlank()) {
+                text += ": " + safeContact(name.trim().isEmpty() ? "nome não informado" : name);
+                if (!phone.trim().isEmpty()) {
                     text += " • Telefone: " + safeContact(phone);
                     String digits = phone.replaceAll("[^0-9]", "");
                     if (digits.length() == 10 || digits.length() == 11)
@@ -572,7 +572,7 @@ final class CadMonitor {
     private void emitParticipantsBlock(Element r, String number, String assignment, String body, int part) {
         sink.accept(new Event(CadXml.text(r, "idRecurso"), CadXml.text(r, "prefixo"), number,
                               assignment + ":envolvidos:" + AppFiles.hash(body) + ":" + part,
-                              AppFiles.hash(body), "CONTATOS • ENVOLVIDOS NO DESPACHO", body.stripTrailing(),
+                              AppFiles.hash(body), "CONTATOS • ENVOLVIDOS NO DESPACHO", Java8.stripTrailing(body),
                               "", Instant.now().toString(), CadXml.text(r, "idUnidadeServico"),
                               CadXml.text(r, "idTipoRecurso"), true));
     }
@@ -612,7 +612,7 @@ final class CadMonitor {
             return false;
         }
     }
-    static String encode(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
+    static String encode(String s) { return Java8.encode(s); }
     static String label(String s) {
         switch (s) {
         case "NL":
@@ -692,7 +692,19 @@ final class CadMonitor {
         }
         /** Prefixo identifica o tópico mesmo se o CAD mudar o ID do recurso. */
         String topicKey() {
+            return topicKey(resource, resourceId);
+        }
+        static String normalizedPrefix(String resource) {
             String prefix = resource.trim().toUpperCase(Locale.ROOT);
+            java.util.regex.Matcher match = java.util.regex.Pattern
+                .compile("^([A-Z]+)[\\s-]*([0-9]+)(?:\\s*\\([^)]*\\))?\\s*$").matcher(prefix);
+            if (!match.matches())
+                return prefix;
+            String digits = match.group(2).replaceFirst("^0+(?!$)", "");
+            return match.group(1) + Java8.repeat("0", Math.max(0, 5 - digits.length())) + digits;
+        }
+        static String topicKey(String resource, String resourceId) {
+            String prefix = normalizedPrefix(resource);
             return prefix.isEmpty() ? "resource." + resourceId : "vtr." + AppFiles.hash(prefix);
         }
         private static final String FOOTER = "CAD • Recebido";
@@ -778,7 +790,7 @@ final class CadMonitor {
             StringBuilder json = new StringBuilder("{");
             if (create)
                 json.append("\"thread_name\":")
-                    .append(AppFiles.json(first.limit("VTR " + first.resource, 100)))
+                    .append(AppFiles.json(first.limit("VTR " + normalizedPrefix(first.resource), 100)))
                     .append(',');
             json.append("\"allowed_mentions\":{\"parse\":[]},\"embeds\":[");
             for (int i = 0; i < events.size(); i++) {

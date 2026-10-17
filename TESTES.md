@@ -12,9 +12,9 @@ O build Maven compila e empacota; não executa os testes Java desta pasta automa
 python tests/run_tests.py
 ```
 
-No Linux, use `python3` se necessário. O script compila todos os testes em uma pasta temporária e executa nove cenários sem interface, com o separador de classpath apropriado para Windows/Linux. Falhas retornam código diferente de zero. Não usa credenciais reais nem acessa o CAD/Discord.
+No Linux, use `python3` se necessário. O script compila todos os testes em uma pasta temporária e executa onze cenários sem interface, com o separador de classpath apropriado para Windows/Linux. Falhas retornam código diferente de zero. Não usa credenciais reais nem acessa o CAD/Discord.
 
-O GitHub Actions executa essa suíte e `java -jar ... --help` no Windows e no Linux, além do broker simulado no Linux. Os testes com janelas e o broker não fazem parte de `run_tests.py`. Os comandos detalhados abaixo usam shell Linux; no Windows, o separador do classpath é `;`, em vez de `:`.
+O GitHub Actions compila em JDK 11 e executa essa suíte e `java -jar ... --help` em Java 8 e Java 11 no Windows e no Linux, além do broker simulado no Linux. Os testes com janelas e o broker não fazem parte de `run_tests.py`. Os comandos detalhados abaixo usam shell Linux; no Windows, o separador do classpath é `;`, em vez de `:`.
 
 ## Formatação, perfis e publicador
 

@@ -14,6 +14,21 @@ final class ProfileStore {
         this.file = file;
     }
 
+    /** Valida a senha antes de transportar; mantém os segredos cifrados no destino. */
+    void copyTo(Path destination, char[] protection) throws Exception {
+        Properties loaded = load(protection);
+        if (!loaded.containsKey("host") || !loaded.containsKey("user"))
+            throw new IllegalArgumentException("Arquivo não contém um perfil CAD Reader válido");
+        try {
+            new ProfileStore(destination).save(loaded, loaded.getProperty("webhook", ""),
+                                               loaded.getProperty("password", ""), protection);
+        } finally {
+            loaded.remove("webhook");
+            loaded.remove("password");
+            loaded.remove("botToken");
+        }
+    }
+
     /** Compatibilidade: salvar sem informar senha CAD nunca a persiste. */
     void save(Properties settings, String webhook, char[] protection) throws Exception {
         save(settings, webhook, "", protection);
@@ -59,7 +74,7 @@ final class ProfileStore {
         Properties data = AppFiles.load(file);
         for (String field : new String[] {"webhook", "password", "botToken"}) {
             String encrypted = data.getProperty(field + ".encrypted", "");
-            if (!encrypted.isBlank()) {
+            if (!encrypted.trim().isEmpty()) {
                 String[] parts = encrypted.split(":");
                 if (parts.length != 3)
                     throw new IllegalArgumentException("Perfil inválido");

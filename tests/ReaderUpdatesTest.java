@@ -31,7 +31,7 @@ public final class ReaderUpdatesTest {
         CadMonitor monitor = new CadMonitor(notifications::add);
         List<String> decisions = new ArrayList<>();
         monitor.setDiagnostics(decisions::add);
-        monitor.setResourceFilter(new CadResourceFilter("1", Set.of("7"), Set.of("9")));
+        monitor.setResourceFilter(new CadResourceFilter("1", Java8.set("7"), Java8.set("9")));
         monitor.setHistoryRequest(queries::add);
         String history = history("Registro inicial", "1700000000000");
         String summary = call(history);
@@ -150,7 +150,7 @@ public final class ReaderUpdatesTest {
                                                      = "https://discord.com/api/webhooks/123/ficticio";
             char[] protection = "protecao-independente".toCharArray();
             profile.save(new Properties(), webhook, secret, protection);
-            String disk = Files.readString(root.resolve("perfil.properties"));
+            String disk = Java8.readString(root.resolve("perfil.properties"));
             check(!disk.contains(secret) && !disk.contains("ficticio"),
                   "Segredos ausentes do texto do perfil");
             Properties loaded = profile.load(protection);
@@ -164,7 +164,7 @@ public final class ReaderUpdatesTest {
             List<CadMonitor.Event> events = new ArrayList<>();
             List<String> requests = new ArrayList<>();
             CadMonitor monitor = new CadMonitor(events::add);
-            monitor.setResourceFilter(new CadResourceFilter("1", Set.of("7"), Set.of("9")));
+            monitor.setResourceFilter(new CadResourceFilter("1", Java8.set("7"), Java8.set("9")));
             monitor.setHistoryRequest(requests::add);
             String r
                 = "<idRecurso>20</idRecurso><prefixo>AB-01</prefixo><idUnidadeServico>7</idUnidadeServico>"
@@ -208,7 +208,7 @@ public final class ReaderUpdatesTest {
             check(events.get(1).body.contains("Histórico anterior")
                       && !events.get(1).body.contains("Autor não exportado"),
                   "Histórico inclui descrição sem campos de autoria");
-            check(requests.equals(List.of("10")), "Consulta somente chamada empenhada");
+            check(requests.equals(Java8.list("10")), "Consulta somente chamada empenhada");
             String h2 = history("Informação complementar", "1700000001000");
             monitor.accept(
                 xml("<rtnRecuperarResumosHistoricosChamada readerCallId='10'><resumosHistoricosChamada>" + h1
@@ -219,7 +219,7 @@ public final class ReaderUpdatesTest {
                                + "</resumoChamada></envInformarAlteracaoChamada>"));
             check(events.size() == 3 && requests.size() == 2,
                   "Alteração de histórico consulta servidor sem repetir textos");
-            String longHistory = history("X".repeat(6000), "1700000002000");
+            String longHistory = history(Java8.repeat("X", 6000), "1700000002000");
             monitor.accept(
                 xml("<rtnRecuperarResumosHistoricosChamada readerCallId='10'><resumosHistoricosChamada>"
                     + longHistory + "</resumosHistoricosChamada></rtnRecuperarResumosHistoricosChamada>"));
@@ -239,7 +239,7 @@ public final class ReaderUpdatesTest {
             List<CadMonitor.Event> existingEvents = new ArrayList<>();
             List<String> existingRequests = new ArrayList<>();
             CadMonitor existing = new CadMonitor(existingEvents::add);
-            existing.setResourceFilter(new CadResourceFilter("1", Set.of("7"), Set.of("9")));
+            existing.setResourceFilter(new CadResourceFilter("1", Java8.set("7"), Java8.set("9")));
             existing.setHistoryRequest(existingRequests::add);
             existing.accept(xml("<rtnRecuperarResumosChamadasAtivas><resumosChamadas><i>" + call(h1)
                                 + "</i></resumosChamadas></rtnRecuperarResumosChamadasAtivas>"));
@@ -255,11 +255,11 @@ public final class ReaderUpdatesTest {
             existing.accept(xml("<envInformarAlteracaoChamada><resumoChamada>" + call(h1 + h2)
                                 + "</resumoChamada></envInformarAlteracaoChamada>"));
             existing.historyFinished("10", true);
-            check(existingEvents.size() == initialSize + 1 && existingRequests.equals(List.of("10")),
+            check(existingEvents.size() == initialSize + 1 && existingRequests.equals(Java8.list("10")),
                   "Mudança somente de histórico ativa contexto de empenho que já existia na carga");
 
             CadMonitor incomplete = new CadMonitor(events::add);
-            incomplete.setResourceFilter(new CadResourceFilter("1", Set.of("7"), Set.of("9")));
+            incomplete.setResourceFilter(new CadResourceFilter("1", Java8.set("7"), Java8.set("9")));
             incomplete.accept(xml("<rtnRecuperarResumosChamadasAtivas><resumosChamadas><i>" + call("")
                 + "</i></resumosChamadas></rtnRecuperarResumosChamadasAtivas>"));
             incomplete.accept(xml("<rtnRecuperarResumosRecursosParaEmpenho><resumosRecursos><i>" + r

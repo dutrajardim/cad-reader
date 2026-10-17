@@ -23,7 +23,7 @@ public final class ReaderHttpTransportTest {
                 check(exchange.getRequestMethod().equals("POST"), "POST");
                 check("close".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Connection")),
                       "Conexão encerrada por envio");
-                byte[] data = exchange.getRequestBody().readAllBytes();
+                byte[] data = Java8.readAllBytes(exchange.getRequestBody());
                 check(Integer.parseInt(exchange.getRequestHeaders().getFirst("Content-Length"))
                           == data.length,
                       "Content-Length em bytes UTF-8");
@@ -37,7 +37,7 @@ public final class ReaderHttpTransportTest {
             }
         });
         server.createContext("/redirect", exchange -> {
-            exchange.getRequestBody().readAllBytes();
+            Java8.readAllBytes(exchange.getRequestBody());
             exchange.getResponseHeaders().set("Location", "/unexpected");
             exchange.sendResponseHeaders(302, -1);
             exchange.close();
@@ -48,7 +48,7 @@ public final class ReaderHttpTransportTest {
             exchange.close();
         });
         server.createContext("/rate", exchange -> {
-            exchange.getRequestBody().readAllBytes();
+            Java8.readAllBytes(exchange.getRequestBody());
             byte[] response = "{\"retry_after\":1.5}".getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Retry-After", "1.5");
             exchange.sendResponseHeaders(429, response.length);
@@ -56,7 +56,7 @@ public final class ReaderHttpTransportTest {
             exchange.close();
         });
         server.createContext("/drop", exchange -> {
-            exchange.getRequestBody().readAllBytes();
+            Java8.readAllBytes(exchange.getRequestBody());
             dropped.incrementAndGet();
             exchange.close();
         });
@@ -67,7 +67,7 @@ public final class ReaderHttpTransportTest {
             check(transport.send(base + "/send", body).status == 200, "Primeiro envio");
             Thread.sleep(200);
             check(transport.send(base + "/send", body).body.contains("999"), "Novo envio após ociosidade");
-            check(ports.size() == 2 && requestBodies.equals(List.of(body, body)),
+            check(ports.size() == 2 && requestBodies.equals(Java8.list(body, body)),
                   "Conexões diferentes sem alteração do payload");
             check(transport.send(base + "/redirect", body).status == 302 && redirected.get() == 0,
                   "Redirecionamento não seguido");
@@ -127,7 +127,7 @@ public final class ReaderHttpTransportTest {
         }
     }
     static void verifyStagesAndPause() throws Exception {
-        for (String point : List.of("connect", "headers", "body")) {
+        for (String point : Java8.list("connect", "headers", "body")) {
             Connection connection = new Connection(point);
             try (DiscordHttpTransport transport = new DiscordHttpTransport(url -> connection)) {
                 try {

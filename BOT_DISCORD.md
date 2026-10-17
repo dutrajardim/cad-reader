@@ -1,6 +1,6 @@
 # Bot Discord: relatórios CAD e limpeza de tópicos
 
-O bot é opcional e roda dentro da aplicação Java aberta no computador. Usa um token de bot próprio, diferente da URL do webhook. O webhook continua publicando atualizações das viaturas; o bot atende comandos. Não é necessário hospedar uma página, abrir uma porta pública nem habilitar o intent de conteúdo de mensagens.
+O bot roda dentro da aplicação Java aberta no computador. Usa um token de bot próprio, diferente da URL do webhook. O token é necessário para procurar tópicos existentes antes de publicar pelo webhook; essa busca não exige iniciar a conexão do bot para comandos. Os comandos continuam opcionais. Não é necessário hospedar uma página, abrir uma porta pública nem habilitar o intent de conteúdo de mensagens.
 
 ## Configurar
 

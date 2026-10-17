@@ -25,7 +25,7 @@ public final class ReaderOptions {
         brokerMinimumRevision = values.getOrDefault("broker-minimum-revision", "279");
         positive(clientRevision, "--client-revision");
         positive(brokerMinimumRevision, "--broker-minimum-revision");
-        if (clientVersion.isBlank())
+        if (clientVersion.trim().isEmpty())
             throw new IllegalArgumentException("--client-version não pode ser vazio");
         port = positive(values.getOrDefault("port", "5222"), "--port");
         if (port > 65535)
@@ -35,9 +35,9 @@ public final class ReaderOptions {
         recursoFilterId = filterId(values.get("recurso-filter-id"));
         insecure = values.containsKey("insecure");
         debug = values.containsKey("debug");
-        if (username.isBlank() || password.isEmpty())
+        if (username.trim().isEmpty() || password.isEmpty())
             throw new IllegalArgumentException("Informe --user e CAD_PASSWORD (ou --password)");
-        if (host.isBlank() || domain.isBlank() || resource.isBlank())
+        if (host.trim().isEmpty() || domain.trim().isEmpty() || resource.trim().isEmpty())
             throw new IllegalArgumentException("Host, domínio e recurso não podem ser vazios");
     }
 
@@ -89,7 +89,7 @@ public final class ReaderOptions {
                 + "Sem IDs: solicita o catálogo de filtros; com IDs: seleciona e lê estados.");
             return null;
         }
-        Set<String> valued = Set.of("host", "port", "to", "user", "username", "password", "resource",
+        Set<String> valued = Java8.set("host", "port", "to", "user", "username", "password", "resource",
             "chamada-filter-id", "recurso-filter-id", "request-timeout", "client-version",
             "client-revision", "broker-minimum-revision");
         Map<String, String> values = new HashMap<>();

@@ -45,7 +45,7 @@ public final class ReaderIntegrationTest {
                    + "i>")));
         check(scope.matches("7", "9") && !scope.matches("8", "9") && !scope.matches("7", "10"),
               "Critérios de unidade e tipo do CAD original");
-        check(new CadResourceFilter("35", Set.of("7"), Set.of()).matches("7", "10"),
+        check(new CadResourceFilter("35", Java8.set("7"), Java8.set()).matches("7", "10"),
               "Sem restrição de tipos inclui todos os tipos da unidade");
         List<CadMonitor.Event> records = new ArrayList<>();
         CadMonitor monitor = new CadMonitor(records::add);
@@ -105,7 +105,7 @@ public final class ReaderIntegrationTest {
                              sent.incrementAndGet();
                              return new DiscordPublisher.Result(200, "{\"channel_id\":\"999\"}");
                          },
-                         new CadResourceFilter("99", Set.of("8"), Set.of()))) {
+                         new CadResourceFilter("99", Java8.set("8"), Java8.set()))) {
             publisher.retry();
         }
         check(sent.get() == 0, "Não reenvia pendências de outro filtro");
@@ -136,8 +136,7 @@ public final class ReaderIntegrationTest {
         Path base = root.resolve("recovery");
         Path dir = base.resolve("discord-" + AppFiles.hash("789").substring(0, 20));
         Properties oldTopics = new Properties();
-        oldTopics.setProperty(first.resourceId, "888");
-        oldTopics.setProperty(first.topicKey(), "888");
+        oldTopics.setProperty("vtr." + AppFiles.hash(first.resource.trim().toUpperCase(Locale.ROOT)), "888");
         AppFiles.save(dir.resolve("topics.properties"), oldTopics);
         List<String> urls = new CopyOnWriteArrayList<>();
         CountDownLatch recovered = new CountDownLatch(2);
@@ -231,6 +230,12 @@ public final class ReaderIntegrationTest {
     }
 
     public static void main(String[] args) throws Exception {
+        check(CadMonitor.Event.normalizedPrefix("UR05471 (2BBM)").equals("UR05471"), "Remove unidade do prefixo");
+        check(CadMonitor.Event.normalizedPrefix("ur5471 (JUATUB)").equals("UR05471"), "Normaliza caixa e zeros");
+        check(CadMonitor.Event.normalizedPrefix("ABT054").equals("ABT00054"), "Completa cinco dígitos");
+        check(CadMonitor.Event.normalizedPrefix("ABCD000123456").equals("ABCD123456"), "Preserva números longos");
+        check(CadMonitor.Event.normalizedPrefix("RECURSO ESPECIAL").equals("RECURSO ESPECIAL"), "Preserva nomes sem padrão");
+        check(!CadMonitor.Event.topicKey("UR5471", "1").equals(CadMonitor.Event.topicKey("AB5471", "1")), "Letras distinguem viaturas");
         InputStream misleadingAvailable = new ByteArrayInputStream(new byte[] {1, 2, 3}) {
             @Override
             public synchronized int available() {
@@ -247,7 +252,7 @@ public final class ReaderIntegrationTest {
         try (CadInputBuffer buffer = new CadInputBuffer(misleadingAvailable)) {
             check(buffer.read(block) == 3 && block[2] == 3, "Buffer devolve bloco sem esperar outra leitura");
         }
-        ReaderOptions credentials = ReaderOptions.from(Map.of("user", " bm123 ", "password", "aA&' "));
+        ReaderOptions credentials = ReaderOptions.from(Java8.map("user", " bm123 ", "password", "aA&' "));
         check(credentials.username.equals("BM123"), "Usuário normalizado como na tela original");
         check(credentials.password.equals("aA&' "), "Senha deve ser preservada literalmente");
         javax.swing.SwingUtilities.invokeAndWait(() -> {
@@ -288,7 +293,7 @@ public final class ReaderIntegrationTest {
             props.setProperty("password", "never-store");
             String webhook = "https://discord.com/api/webhooks/123/fake-token";
             store.save(props, webhook, "senha-local-forte".toCharArray());
-            String disk = Files.readString(root.resolve("profile.properties"));
+            String disk = Java8.readString(root.resolve("profile.properties"));
             check(!disk.contains("fake-token") && !disk.contains("never-store"), "Segredo em texto simples");
             check(store.load("senha-local-forte".toCharArray()).getProperty("webhook").equals(webhook),
                   "Criptografia");
@@ -297,9 +302,36 @@ public final class ReaderIntegrationTest {
                 throw new AssertionError("Aceitou senha incorreta");
             } catch (IllegalArgumentException expected) {
             }
+            Properties portable = new Properties();
+            portable.setProperty("host", "cad.example");
+            portable.setProperty("user", "BM123");
+            portable.setProperty("calls", "12");
+            portable.setProperty("botToken", "bot-secret-portable");
+            Path original = root.resolve("pc1/profile.properties");
+            Path exported = root.resolve("transfer/profile.properties");
+            Path imported = root.resolve("pc2/profile.properties");
+            char[] protection = "senha-local-forte".toCharArray();
+            new ProfileStore(original).save(portable, webhook, "cad-secret-portable", protection);
+            new ProfileStore(original).copyTo(exported, protection);
+            new ProfileStore(exported).copyTo(imported, protection);
+            Properties restored = new ProfileStore(imported).load(protection);
+            check(restored.getProperty("password").equals("cad-secret-portable")
+                      && restored.getProperty("botToken").equals("bot-secret-portable")
+                      && restored.getProperty("webhook").equals(webhook)
+                      && restored.getProperty("calls").equals("12"), "Perfil portável preserva configurações e segredos");
+            String exportedText = Java8.readString(exported);
+            check(!exportedText.contains("cad-secret-portable") && !exportedText.contains("bot-secret-portable")
+                      && !exportedText.contains("fake-token"), "Exportação mantém segredos cifrados");
+            String previous = Java8.readString(imported);
+            try {
+                new ProfileStore(exported).copyTo(imported, "senha-incorreta".toCharArray());
+                throw new AssertionError("Importação aceitou senha incorreta");
+            } catch (IllegalArgumentException expected) {
+                check(Java8.readString(imported).equals(previous), "Falha de importação preserva destino");
+            }
             List<CadMonitor.Event> events = new ArrayList<>();
             CadMonitor monitor = new CadMonitor(events::add);
-            monitor.setResourceFilter(new CadResourceFilter("34", Set.of("7"), Set.of("9")));
+            monitor.setResourceFilter(new CadResourceFilter("34", Java8.set("7"), Java8.set("9")));
             String ns = " xmlns='http://sids.mg.gov.br/cad'";
             monitor.accept(xml(
                 "<rtnRecuperarResumosChamadasAtivas" + ns
@@ -381,14 +413,14 @@ public final class ReaderIntegrationTest {
                 publisher.publish(baseline);
                 publisher.publish(first);
                 publisher.publish(events.get(1));
-                publisher.publish(new CadMonitor.Event("21", "AB-01", "nova chamada", "21:x", "new",
+                publisher.publish(new CadMonitor.Event("21", "ab00001 (JUATUB)", "nova chamada", "21:x", "new",
                                                        "ATUALIZAÇÃO", "nova ativação", "", first.observed,
                                                        "7", "9"));
                 check(confirmed.await(5, TimeUnit.SECONDS), "Envios simulados");
                 check(urls.get(0).endsWith("wait=true") && urls.get(1).endsWith("thread_id=999"),
                       "Reutilização do tópico");
                 check(urls.get(2).endsWith("thread_id=999"), "Mesmo prefixo com novo ID usa o mesmo tópico");
-                check(!bodies.get(0).contains("\"content\":") && bodies.get(0).contains("VTR AB-01"),
+                check(!bodies.get(0).contains("\"content\":") && bodies.get(0).contains("\"thread_name\":\"VTR AB00001\""),
                       "Prévia legível no fórum");
                 check(bodies.get(0).contains("thread_name") && !bodies.get(1).contains("thread_name"),
                       "Criação única");

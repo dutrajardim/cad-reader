@@ -107,7 +107,7 @@ public final class ReaderProfileWindowTest {
                 throw new AssertionError("Configuração do bot preservada no perfil");
             if (saved.containsKey("password") || !saved.getProperty("calls").equals("123"))
                 throw new AssertionError("Remoção opcional da senha preserva filtros sem conexão");
-            Files.writeString(data.resolve("historico.csv"), "registro fictício");
+            Java8.writeString(data.resolve("historico.csv"), "registro fictício");
             SwingUtilities.invokeAndWait(() -> {
                 javax.swing.Timer confirm = new javax.swing.Timer(100, e -> {
                     for (Window dialog : Window.getWindows()) {

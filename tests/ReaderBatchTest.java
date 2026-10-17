@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class ReaderBatchTest {
     private static final List<String> CAPTURE = new CopyOnWriteArrayList<>();
     private static final String WEBHOOK = "https://discord.com/api/webhooks/123/ficticio";
-    private static final CadResourceFilter SCOPE = new CadResourceFilter("1", Set.of("7"), Set.of("9"));
+    private static final CadResourceFilter SCOPE = new CadResourceFilter("1", Java8.set("7"), Java8.set("9"));
     private static void check(boolean condition, String message) {
         ReaderIntegrationTest.check(condition, message);
     }
@@ -107,12 +107,12 @@ public final class ReaderBatchTest {
             for (int i = 0; i < 2; i++) {
                 CadMonitor.Event e = event("1", "10", "LONGO " + i, i);
                 publisher.publish(new CadMonitor.Event(e.resourceId, e.resource, e.number, e.key,
-                                                       e.fingerprint, e.title, "X".repeat(3400), "",
+                                                       e.fingerprint, e.title, Java8.repeat("X", 3400), "",
                                                        e.observed, e.unitId, e.typeId));
             }
             await(() -> bodies.size() == 2);
             check(bodies.stream().allMatch(
-                      b -> count(b, "\"timestamp\":") == 1 && b.contains("X".repeat(3400))),
+                      b -> count(b, "\"timestamp\":") == 1 && b.contains(Java8.repeat("X", 3400))),
                   "Limite agregado divide sem cortar o evento");
         }
     }
@@ -257,7 +257,7 @@ public final class ReaderBatchTest {
             repeatTransitionsAndRateLimit(root);
             legacyAndAmbiguousFailure(root);
             if (args.length > 0)
-                Files.write(Path.of(args[0]), CAPTURE);
+                Files.write(java.nio.file.Paths.get(args[0]), CAPTURE);
             System.out.println("PASS batch de 3s, ordem/horários, isolamento, limites, "
                                + "fechamento/reabertura, deduplicação e 429");
         } finally {

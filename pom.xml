@@ -7,10 +7,26 @@
   <version>1.0.0</version>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>11</maven.compiler.release>
+    <maven.compiler.release>8</maven.compiler.release>
   </properties>
+  <dependencies>
+    <dependency>
+      <groupId>com.squareup.okhttp3</groupId><artifactId>okhttp</artifactId><version>4.12.0</version>
+    </dependency>
+  </dependencies>
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.4.1</version>
+        <executions><execution><phase>package</phase><goals><goal>shade</goal></goals>
+          <configuration>
+            <createDependencyReducedPom>false</createDependencyReducedPom>
+            <filters><filter><artifact>*:*</artifact><excludes>
+              <exclude>META-INF/versions/**</exclude><exclude>module-info.class</exclude>
+            </excludes></filter></filters>
+          </configuration>
+        </execution></executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.5.0</version>
         <configuration><archive><manifest><mainClass>br.gov.mg.sids.reader.CadXmppReader</mainClass></manifest></archive></configuration>

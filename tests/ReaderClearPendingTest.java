@@ -23,7 +23,7 @@ public final class ReaderClearPendingTest {
     static DiscordPublisher publisher(Path root, DiscordPublisher.Transport transport, List<String> logs)
         throws Exception {
         return new DiscordPublisher("https://discord.com/api/webhooks/123/fake", root, logs::add, transport,
-                                    new CadResourceFilter("1", Set.of("7"), Set.of("9")), 0);
+                                    new CadResourceFilter("1", Java8.set("7"), Java8.set("9")), 0);
     }
     static void failure(Path root) throws Exception {
         List<String> logs = new CopyOnWriteArrayList<>();
@@ -72,7 +72,7 @@ public final class ReaderClearPendingTest {
             p.publish(event("3"));
             release.countDown();
             await(() -> sent.size() == 2 && p.status().endsWith("Pendentes: 0"));
-            check(sent.get(1).contains("VTR-3") && sent.stream().noneMatch(s -> s.contains("VTR-2")),
+            check(sent.get(1).contains("VTR00003") && sent.stream().noneMatch(s -> s.contains("VTR00002")),
                   "Envio em andamento conclui, antigos são descartados e novas chegadas preservadas");
         } finally {
             release.countDown();

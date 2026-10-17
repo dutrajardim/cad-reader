@@ -2,61 +2,73 @@ package br.gov.mg.sids.reader;
 
 import java.io.*;
 import java.net.*;
-import java.net.http.*;
-import java.time.Duration;
 import java.util.*;
 
 /** REST autenticado do bot. Só HTTP 429 é repetido; falhas ambíguas não repetem publicações. */
 class DiscordBotApi implements AutoCloseable {
     private final String token;
-    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private final okhttp3.OkHttpClient client;
+    private static okhttp3.OkHttpClient defaultClient() { return new okhttp3.OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build(); }
     private volatile boolean closed;
     private volatile long blockedUntil;
     DiscordBotApi(String token) {
+        this(token, defaultClient());
+    }
+    /** Cliente substituível para testar HTTP sem credenciais ou serviços reais. */
+    DiscordBotApi(String token, okhttp3.OkHttpClient client) {
         if (!token.matches("[A-Za-z0-9._-]{20,200}"))
             throw new IllegalArgumentException(
                 "Token do bot inválido; copie apenas o token, sem prefixo Bot ou espaços");
         this.token = token;
+        this.client = client;
     }
     Object request(String method, String path, Object body) throws Exception {
         if (!path.startsWith("/") || path.contains(".."))
             throw new IllegalArgumentException("Rota inválida");
         for (int attempt = 0; attempt < 5; attempt++) {
             awaitLimit();
-            HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create("https://discord.com/api/v10" + path))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Authorization", "Bot " + token)
-                    .header("User-Agent", "CAD-Reader (Java, 1.0)");
-            HttpRequest.BodyPublisher payload =
-                body == null ? HttpRequest.BodyPublishers.noBody()
-                             : HttpRequest.BodyPublishers.ofString(BotJson.write(body),
-                                                                   java.nio.charset.StandardCharsets.UTF_8);
-            if (body != null)
-                builder.header("Content-Type", "application/json");
-            HttpResponse<String> response =
-                client.send(builder.method(method, payload).build(), HttpResponse.BodyHandlers.ofString());
+            okhttp3.RequestBody payload = body == null ? null
+                : okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json; charset=utf-8"), BotJson.write(body));
+            if (payload == null && (method.equals("POST") || method.equals("PUT") || method.equals("PATCH")))
+                payload = okhttp3.RequestBody.create(null, new byte[0]);
+            okhttp3.Request request = new okhttp3.Request.Builder()
+                .url("https://discord.com/api/v10" + path)
+                .header("Authorization", "Bot " + token)
+                .header("User-Agent", "CAD-Reader (Java, 1.0)")
+                .method(method, payload).build();
+            int status;
+            String response, remaining, reset;
+            try (okhttp3.Response result = client.newCall(request).execute()) {
+                status = result.code();
+                response = result.body() == null ? "" : result.body().string();
+                remaining = result.header("X-RateLimit-Remaining");
+                reset = result.header("X-RateLimit-Reset-After");
+            }
             Object data;
             try {
-                data = response.body().isBlank() ? Map.of() : BotJson.parse(response.body());
+                data = response.trim().isEmpty() ? Java8.map() : BotJson.parse(response);
             } catch (IllegalArgumentException invalidJson) {
                 // Um proxy pode devolver HTML em vez de JSON. Preserve o status sem expor o corpo.
-                if (response.statusCode() >= 200 && response.statusCode() < 300) throw invalidJson;
-                data = Map.of();
+                if (status >= 200 && status < 300) throw invalidJson;
+                data = Java8.map();
             }
-            if (response.statusCode() == 429) {
+            if (status == 429) {
                 double seconds =
                     Double.parseDouble(BotJson.object(data).getOrDefault("retry_after", 5).toString());
                 blockedUntil = System.nanoTime() + (long)(Math.max(1, seconds) * 1_000_000_000L);
                 continue;
             }
-            if ("0".equals(response.headers().firstValue("X-RateLimit-Remaining").orElse(""))) {
+            if ("0".equals(remaining)) {
                 double seconds =
-                    Double.parseDouble(response.headers().firstValue("X-RateLimit-Reset-After").orElse("1"));
+                    Double.parseDouble(reset == null ? "1" : reset);
                 blockedUntil = System.nanoTime() + (long)(Math.max(0, seconds) * 1_000_000_000L);
             }
-            if (response.statusCode() < 200 || response.statusCode() >= 300)
-                throw failure(response.statusCode(), data);
+            if (status < 200 || status >= 300)
+                throw failure(status, data);
             return data;
         }
         throw new IOException("Discord manteve limite de requisições; tente novamente mais tarde");
@@ -84,5 +96,8 @@ class DiscordBotApi implements AutoCloseable {
     }
     public void close() {
         closed = true;
+        client.dispatcher().cancelAll();
+        client.dispatcher().executorService().shutdownNow();
+        client.connectionPool().evictAll();
     }
 }
