@@ -30,25 +30,20 @@ class DiscordBotApi implements AutoCloseable {
         else builder.proxySelector(ProxySelector.getDefault());
         return builder;
     }
+    interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     private final String token;
-    private final okhttp3.OkHttpClient client;
-    private static okhttp3.OkHttpClient defaultClient() { return networkBuilder()
-        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build(); }
-    private volatile boolean closed;
-    private volatile long blockedUntil;
-    DiscordBotApi(String token) {
-        this(token, defaultClient());
-    }
-    /** Cliente substituível para testar HTTP sem credenciais ou serviços reais. */
-    DiscordBotApi(String token, okhttp3.OkHttpClient client) {
+    private final ConnectionFactory factory;
+    DiscordBotApi(String token) { this(token, DiscordBotApi::openDefault); }
+    DiscordBotApi(String token, ConnectionFactory factory) {
         if (!token.matches("[A-Za-z0-9._-]{20,200}"))
             throw new IllegalArgumentException(
                 "Token do bot inválido; copie apenas o token, sem prefixo Bot ou espaços");
         this.token = token;
-        this.client = client;
+        this.factory = factory;
+    }
+    private static HttpURLConnection openDefault(URL target) throws IOException {
+        Proxy proxy = discordProxy();
+        return (HttpURLConnection)(proxy == null ? target.openConnection() : target.openConnection(proxy));
     }
     Object request(String method, String path, Object body) throws Exception {
         if (!path.startsWith("/") || path.contains(".."))
@@ -59,7 +54,7 @@ class DiscordBotApi implements AutoCloseable {
             try {
                 URL target = URI.create("https://discord.com/api/v10" + path).toURL();
                 Proxy proxy = discordProxy();
-                connection = (HttpURLConnection)(proxy == null ? target.openConnection() : target.openConnection(proxy));
+                connection = factory.open(target);
                 connection.setConnectTimeout(15000);
                 connection.setReadTimeout(30000);
                 connection.setInstanceFollowRedirects(false);
@@ -132,10 +127,5 @@ class DiscordBotApi implements AutoCloseable {
             this.code = code;
         }
     }
-    public void close() {
-        closed = true;
-        client.dispatcher().cancelAll();
-        client.dispatcher().executorService().shutdownNow();
-        client.connectionPool().evictAll();
-    }
+    public void close() { closed = true; }
 }
