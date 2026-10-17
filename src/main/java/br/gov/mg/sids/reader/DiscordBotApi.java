@@ -33,6 +33,8 @@ class DiscordBotApi implements AutoCloseable {
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     private final String token;
     private final ConnectionFactory factory;
+    private volatile boolean closed;
+    private volatile long blockedUntil;
     DiscordBotApi(String token) { this(token, DiscordBotApi::openDefault); }
     DiscordBotApi(String token, ConnectionFactory factory) {
         if (!token.matches("[A-Za-z0-9._-]{20,200}"))
@@ -53,7 +55,6 @@ class DiscordBotApi implements AutoCloseable {
             HttpURLConnection connection = null;
             try {
                 URL target = URI.create("https://discord.com/api/v10" + path).toURL();
-                Proxy proxy = discordProxy();
                 connection = factory.open(target);
                 connection.setConnectTimeout(15000);
                 connection.setReadTimeout(30000);
