@@ -9,7 +9,7 @@ JAR = ROOT / "target/java-cad-reader-1.0.0.jar"
 TESTS = (
     "ReaderIntegrationTest", "ReaderUpdatesTest", "ReaderBatchTest",
     "ReaderMessageFormatTest", "ReaderParticipantsTest", "ReaderClearPendingTest",
-    "ReaderHttpTransportTest", "ReaderBotTest", "ReaderBotGatewayTest", "ReaderTopicLookupTest", "ReaderBotHttpTest",
+    "ReaderHttpTransportTest", "ReaderBotTest", "ReaderBotGatewayTest", "ReaderTopicLookupTest", "ReaderBotHttpTest", "ReaderOperationalTest",
 )
 
 

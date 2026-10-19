@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),path=require('node:path');const dir=process.env.CAD_WEB_TEST_MODULES;
+const {assignmentState}=require(path.join(dir,'assignmentState.js'));const {pollVisible}=require(path.join(dir,'pollVisible.js'));const {changes}=require(path.join(dir,'api.js'));
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+(async()=>{
+ for(const [input,label] of [['NL','No local'],['NO_LOCAL','No local'],['AC','A caminho'],['EM_DIRECAO','Em direção'],['EM_DESLOCAMENTO','Em deslocamento'],['ER','Em retorno'],['DP','Despachada'],['LI','Local intermediário'],['EC','Em controle'],['SU','Suspensa'],['EN','Em encerramento']])assert.equal(assignmentState(input).label,label);
+ assert.equal(assignmentState('').label,'Estado não informado');assert.equal(assignmentState('NOVO_ESTADO').label,'NOVO ESTADO');console.log('PASS viaturas: siglas CAD, textos e estado desconhecido sem inferência');
+ const listeners=new Map();global.document={hidden:false,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)};
+ let calls=0,inflight=0,max=0;const stop=pollVisible(async signal=>{calls++;inflight++;max=Math.max(max,inflight);await new Promise(resolve=>{const timer=setTimeout(resolve,25);signal.addEventListener('abort',()=>{clearTimeout(timer);resolve()},{once:true})});inflight--},5);
+ await wait(75);assert.equal(max,1);assert.ok(calls>=2);document.hidden=true;listeners.get('visibilitychange')();await wait(10);const hiddenCount=calls;await wait(45);assert.equal(calls,hiddenCount);document.hidden=false;listeners.get('visibilitychange')();await wait(10);assert.ok(calls>hiddenCount);stop();await wait(10);const stoppedCount=calls;await wait(40);assert.equal(calls,stoppedCount);assert.equal(listeners.size,0);console.log('PASS polling: serial, pausa em aba oculta, retomada e encerramento');
+ const requests=[];global.fetch=async(url,options)=>{requests.push(options.headers);return requests.length===2?{status:304}:{status:200,ok:true,headers:{get:()=> 'v1'},json:async()=>({revision:1})}};
+ const read=changes(),signal=new AbortController().signal;assert.deepEqual(await read('state',signal),{revision:1});assert.equal(await read('state',signal),undefined);assert.equal(requests[1]['If-None-Match'],'v1');await changes()('state',signal);assert.deepEqual(requests[2],{});console.log('PASS versões HTTP: 304 preserva dados e nova página começa com leitura completa');
+})().catch(e=>{console.error(e);process.exitCode=1});

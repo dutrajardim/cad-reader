@@ -47,6 +47,14 @@ public final class CadReaderWindow extends JFrame {
     private final JButton configureBotButton = new JButton("Configurar bot"),
                           startBotButton = new JButton("Iniciar bot"),
                           stopBotButton = new JButton("Parar bot");
+    private final CadOperationalState operational = new CadOperationalState();
+    private CadWebServer web;
+    private void requestWebHistory(String id) {
+        CadXmppReader session=reader;
+        if(session==null)throw new IllegalArgumentException("Conecte ao CAD para carregar o histórico.");
+        try { session.requestWebHistory(id); }
+        catch(java.io.IOException error){throw new IllegalArgumentException("Não foi possível solicitar o histórico ao CAD.");}
+    }
     private volatile CadXmppReader reader;
     private volatile CadMonitor activeMonitor;
     private volatile Map<String, CadResourceFilter> resourceFilters = Collections.emptyMap();
@@ -58,6 +66,8 @@ public final class CadReaderWindow extends JFrame {
     /** Todos os componentes Swing são criados e atualizados no EDT. */
     public CadReaderWindow() {
         super("CAD Reader • Ocorrências e viaturas");
+        java.net.URL appIcon = CadReaderWindow.class.getResource("/web/assets/server-cad-reader.png");
+        if (appIcon != null) setIconImage(Toolkit.getDefaultToolkit().getImage(appIcon));
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setSize(1100, 800);
         setLocationRelativeTo(null);
@@ -130,6 +140,7 @@ public final class CadReaderWindow extends JFrame {
                 publisher.clearPending();
         });
         button(buttons, "Exportar CSV", this::export);
+        button(buttons, "Abrir mapa Web", this::openWeb);
         JPanel top = new JPanel(new BorderLayout());
         top.add(config, BorderLayout.CENTER);
         top.add(buttons, BorderLayout.SOUTH);
@@ -169,10 +180,25 @@ public final class CadReaderWindow extends JFrame {
             public void windowClosing(WindowEvent e) {
                 displayTimer.stop();
                 disconnect();
+                if (web != null) web.close();
                 tasks.shutdown();
                 dispose();
             }
         });
+    }
+    private void openWeb() {
+        try {
+            if (web == null) {
+                try { web = new CadWebServer(operational, root, 8080,new ValhallaRouting(),()->summary,this::requestWebHistory); }
+                catch (java.net.BindException busy) { web = new CadWebServer(operational, root, 0,new ValhallaRouting(),()->summary,this::requestWebHistory); }
+                log("Mapa Web local: " + web.url());
+            }
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE))
+                Desktop.getDesktop().browse(java.net.URI.create(web.url()));
+            else info("Abra no navegador: " + web.url());
+        } catch (Exception e) {
+            info("Não foi possível abrir o mapa Web (" + e.getClass().getSimpleName() + "). A conexão CAD continua disponível.");
+        }
     }
     private void field(JPanel p, String label, JComponent value) {
         p.add(new JLabel(label));
@@ -194,6 +220,7 @@ public final class CadReaderWindow extends JFrame {
     }
     /** Filas limitadas evitam sobrecarregar o EDT durante a carga inicial. */
     private void log(String s) {
+        operational.activity("log", s, "");
         if (!pendingLogs.offer(s)) {
             pendingLogs.poll();
             pendingLogs.offer(s);
@@ -205,6 +232,7 @@ public final class CadReaderWindow extends JFrame {
         DiscordPublisher publisher = discord;
         String status
             = publisher == null ? "Discord: publicação desativada nesta sessão" : publisher.status();
+        operational.publicationStatus(status);
         if (!("  " + status).equals(deliveryState.getText())) {
             deliveryState.setText("  " + status);
             deliveryState.setToolTipText(status);
@@ -502,9 +530,12 @@ public final class CadReaderWindow extends JFrame {
             options.put("insecure", "true");
         ReaderOptions parsed = ReaderOptions.from(options);
         user.setText(parsed.username);
+        operational.reset();
+        operational.sessionConfig(parsed.host,parsed.port,parsed.insecure);
         calls.clear();
         resources.clear();
         long connectionGeneration = ++generation;
+        operational.communication.beginSession();
         CadMonitor monitor = new CadMonitor(e -> {
             if (connectionGeneration == generation)
                 event(e);
@@ -516,7 +547,17 @@ public final class CadReaderWindow extends JFrame {
         activeMonitor = monitor;
         resourceFilters = Collections.emptyMap();
         CadXmppReader session = new CadXmppReader(parsed, new CadListener() {
+            public void onCadRequest(String id,String operation,String callId,int page,String outcome,long elapsedMillis){
+                if(connectionGeneration!=generation)return;
+                operational.communication.request(connectionGeneration+":"+id,operation,callId,page,outcome,elapsedMillis);
+                operational.details.request(callId,operation,page,outcome);
+            }
+            public void onCadNotification(String operation){if(connectionGeneration==generation)operational.communication.notification();}
+            public void onParticipantsFinished(String callId,boolean complete){if(connectionGeneration==generation)operational.details.finished(callId,true,complete);}
+
             public void onLog(String category, String text) {
+                if ("AUTH".equals(category) && "Autenticação confirmada".equals(text) && connectionGeneration==generation)
+                    operational.authenticated();
                 if ("AUTH".equals(category) && "Autenticação confirmada".equals(text))
                     SwingUtilities.invokeLater(() -> {
                         if (connectionGeneration == generation)
@@ -546,9 +587,13 @@ public final class CadReaderWindow extends JFrame {
                 });
             }
             public void onHistoryFinished(String callId, boolean complete) {
+                if(connectionGeneration!=generation)return;
+                operational.details.finished(callId,false,complete);
                 monitor.historyFinished(callId, complete);
             }
             public void onMessage(Element message) {
+                if (connectionGeneration != generation) return;
+                operational.accept(message);
                 CadSummary report = summary;
                 if (report != null && connectionGeneration == generation) report.accept(message);
                 monitor.accept(message);
@@ -588,6 +633,7 @@ public final class CadReaderWindow extends JFrame {
                 session.close();
                 SwingUtilities.invokeLater(() -> {
                     if (reader == session) {
+                        operational.disconnected();
                         reader = null;
                         stopBot();
                         summary = null;
@@ -646,6 +692,8 @@ public final class CadReaderWindow extends JFrame {
             DiscordPublisher created = null;
             try {
                 monitor.setResourceFilter(scope);
+                operational.start(scope);
+                operational.filterConfig(c,r);
                 if (publishing) {
                     created = new DiscordPublisher(url, root, this::log, null, scope);
                     created.setTopicLookup(new DiscordTopicLookup(lookupToken, url));
@@ -685,6 +733,7 @@ public final class CadReaderWindow extends JFrame {
             if (reader != session || generation != expectedGeneration)
                 return;
             monitoring = false;
+            operational.disconnected();
             publish.setEnabled(true);
             stopPublisher();
             log("Não foi possível iniciar monitoramento: " + error.getMessage());
@@ -707,6 +756,8 @@ public final class CadReaderWindow extends JFrame {
             log("Falha ao gravar histórico local.");
         }
         DiscordPublisher p = discord;
+        operational.activity("evento", event.title + " · " + event.resource + " · " + event.number,
+            event.body + "\n\nPublicação: " + (!event.publishable || event.resourceId.isEmpty() ? "somente local (regra do evento)." : p == null ? "não enviada: Discord desativado." : "encaminhada à fila Discord; acompanhe a confirmação ou falha nos registros de publicação."));
         if (event.publishable && !event.resourceId.isEmpty()) {
             if (p != null)
                 p.publish(event);
@@ -806,6 +857,7 @@ public final class CadReaderWindow extends JFrame {
                                           : "Conecte ao CAD e aguarde o catálogo de filtros");
         stopBotButton.setEnabled(bot != null && !botStopping);
         String status = botStopping ? "encerrando…" : bot != null ? bot.status() : botNotice;
+        operational.botStatus(status);
         botState.setText("  Bot: " + status);
         botState.setToolTipText(status);
     }
@@ -883,6 +935,7 @@ public final class CadReaderWindow extends JFrame {
         });
     }
     private void disconnect() {
+        operational.disconnected();
         stopBot();
         summary = null;
         password.setText("");

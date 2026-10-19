@@ -1,0 +1,9 @@
+import { useId, useState } from 'react'
+import { normalizeSearch } from './callFilters'
+export type Option = { value: string; label: string }
+export default function SearchSelect({label,value,options,onChange}:{label:string;value:string;options:Option[];onChange:(value:string)=>void}) {
+ const id=useId(), [open,setOpen]=useState(false),[query,setQuery]=useState(''),[active,setActive]=useState(0)
+ const matches=options.filter(o=>normalizeSearch(o.label).includes(normalizeSearch(query)))
+ const choose=(v:string)=>{onChange(v);setOpen(false);setQuery('');setActive(0)}
+ return <div className="search-select"><label htmlFor={id}>{label}</label><input id={id} role="combobox" aria-expanded={open} aria-controls={id+'-options'} aria-autocomplete="list" aria-activedescendant={open&&matches[active]?id+'-'+active:undefined} value={open?query:options.find(o=>o.value===value)?.label||(value==='all'?'Todos':value)} placeholder="Digite para filtrar…" onFocus={()=>{setOpen(true);setQuery('');setActive(0)}} onBlur={()=>setOpen(false)} onChange={e=>{setQuery(e.target.value);setActive(0)}} onKeyDown={e=>{if(e.key==='Escape'){setOpen(false);setQuery('')}if(e.key==='ArrowDown'){e.preventDefault();setOpen(true);setActive(n=>Math.min(n+1,matches.length-1))}if(e.key==='ArrowUp'){e.preventDefault();setActive(n=>Math.max(0,n-1))}if(e.key==='Enter'&&open&&matches[active]){e.preventDefault();choose(matches[active].value)}}}/>{open&&<div id={id+'-options'} role="listbox" aria-label={label} className="select-options">{matches.map((o,i)=><div key={o.value} id={id+'-'+i} role="option" aria-selected={value===o.value} className={active===i?'highlight':''} onMouseEnter={()=>setActive(i)} onMouseDown={e=>{e.preventDefault();choose(o.value)}}>{o.label}</div>)}{!matches.length&&<p>Nenhum resultado</p>}</div>}</div>
+}

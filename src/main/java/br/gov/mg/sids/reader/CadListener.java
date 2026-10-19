@@ -11,6 +11,10 @@ public interface CadListener {
     /** Sinal local de conclusão da consulta paginada; não envia nada ao CAD. */
     default void onHistoryFinished(String callId, boolean complete) {
     }
+    /** Metadados passivos. started/ok/rejected/timeout/send_error/interrupted; nunca contém XML. */
+    default void onCadRequest(String id, String operation, String callId, int page, String outcome, long elapsedMillis) {}
+    default void onCadNotification(String operation) {}
+    default void onParticipantsFinished(String callId, boolean complete) {}
     default void onMessage(Element message) {
     }
 }

@@ -1,0 +1,22 @@
+export type Position = { lat: number; lon: number }
+export type Nature = { code: string; description: string }
+export type AssignmentStatus = 'linked'|'reported'|'unlinked'|'unknown'
+export type Call = {areas?:{id:string;name:string}[];complement?:string;reference?:string;requestedAt?:string;historyCount?:string; natures: Nature[]; assignmentStatus: AssignmentStatus; assignedResources: { resourceId: string; prefix: string; status: string }[]; id: string; number: string; nature: string; address: string; status: string; lat: number | null; lon: number | null; updatedAt: string }
+export type Resource = {plate?:string;statusAt?:string;assignments?:{callId:string;status:string}[]; id: string; prefix: string; unitId: string; unitName: string; typeId: string; type: string; status: string; restriction: string }
+export type Base = { id: string; unitId: string; name: string; lat: number | null; lon: number | null; address?: string; sourceUrl?: string; checkedAt?: string; notes?: string }
+export type VehicleProfile = { id: string; name: string; costing: 'auto' | 'truck'; height?: number; width?: number; length?: number; weight?: number; axle_load?: number }
+export type Settings = { server: string; bases: Base[]; profiles: VehicleProfile[] }
+export type RoutingStatus = { connected: boolean; server: string; notice: string }
+export type Snapshot = { sessionConfig?:{host:string;port:number;tlsValidation:boolean};callFilterId?:string;resourceFilterId?:string; botStatus?:string;publicationStatus?: string; connected: boolean; ready: boolean; status: string; updatedAt: string; revision: number; calls: Call[]; resources: Resource[]; scopeUnits: string[]; scopeTypes: string[] }
+export type Bootstrap = { token: string; state: Snapshot; settings: Settings; routing: RoutingStatus }
+export type Route = { baseId: string; profileId: string; seconds: number; kilometers: number; coordinates: [number, number][] }
+export type RouteResult = { baseId: string; profileId: string; route?: Route; error?: string }
+export type CommunicationRequest={id:string;operation:string;callId:string;page:number;at:string;outcome:string;elapsedMillis:number|null}
+export type Communication={revision:number;sessions:number;total:number;completed:number;rejected:number;timeouts:number;sendErrors:number;interrupted:number;pending:number;notifications:number;averageMillis:number|null;operations:Record<string,number>;requests:CommunicationRequest[]}
+export type LocalSection<T>={status:string;source:string;updatedAt:string;expected:number|null;received:number;verified:boolean;truncated:boolean;items:T[]}
+export type HistoryItem={id:string;date:string;text:string;type:string;agency:string}
+export type Person={id:string;name:string;phone:string;requester:string}
+export type CallDetails={call:Call;history:LocalSection<HistoryItem>;people:LocalSection<Person>}
+
+export type CountRow={label:string;count:number}
+export type SummaryReport={filterId:string;filterName:string;consultedAt:string;total:number;limited:boolean;natures:CountRow[];areas:(CountRow&{natures:CountRow[]})[];text:string}

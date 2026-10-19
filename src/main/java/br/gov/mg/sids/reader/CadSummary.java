@@ -10,10 +10,13 @@ import org.w3c.dom.Element;
 final class CadSummary {
     private final java.util.function.Function<String, CompletableFuture<Element>> fetch;
     private final Map<String, String> filters = new ConcurrentHashMap<>(), units = new ConcurrentHashMap<>();
-    private String cachedId = "", cachedText = "";
+    private String cachedId = "";
+    private Map<String,Object> cachedReport;
     private long cachedAt;
-    private CompletableFuture<String> inFlight;
+    private CompletableFuture<Map<String,Object>> inFlight;
     private String inFlightId;
+    private CompletableFuture<Map<String,Object>> textSource;
+    private CompletableFuture<String> textFuture;
     CadSummary(CadXmppReader reader) {
         this.fetch = reader::requestFilterSummary;
     }
@@ -43,32 +46,32 @@ final class CadSummary {
         return new TreeMap<>(filters);
     }
     synchronized CompletableFuture<String> query(String id) {
-        if (!filters.containsKey(id))
-            return failed("Selecione um filtro do catálogo da sessão CAD");
-        if (id.equals(cachedId) && System.nanoTime() - cachedAt < TimeUnit.SECONDS.toNanos(30))
-            return CompletableFuture.completedFuture(cachedText);
-        if (inFlight != null && !inFlight.isDone())
-            return id.equals(inFlightId) ? inFlight
-                                         : failed("Outra consulta está em andamento; tente novamente");
-        inFlightId = id;
-        inFlight = fetch.apply(id).thenApply(response -> {
-            String text = format(filters.getOrDefault(id, id), response, units);
-            synchronized (this) {
-                cachedId = id;
-                cachedText = text;
-                cachedAt = System.nanoTime();
-            }
-            return text;
-        });
-        return inFlight;
+        CompletableFuture<Map<String,Object>> source=queryData(id);
+        if(source==textSource)return textFuture;
+        textSource=source;textFuture=source.thenApply(report->BotJson.text(report,"text"));return textFuture;
     }
-    private static CompletableFuture<String> failed(String message) {
-        CompletableFuture<String> f = new CompletableFuture<>();
-        f.completeExceptionally(new IllegalArgumentException(message));
-        return f;
+    synchronized CompletableFuture<Map<String,Object>> queryData(String id) {
+        if(!filters.containsKey(id)) return failed("Selecione um filtro do catálogo da sessão CAD");
+        if(id.equals(cachedId) && cachedReport!=null && System.nanoTime()-cachedAt<TimeUnit.SECONDS.toNanos(30))
+            return CompletableFuture.completedFuture(cachedReport);
+        if(inFlight!=null&&!inFlight.isDone()) return id.equals(inFlightId)?inFlight:failed("Outra consulta está em andamento; tente novamente");
+        inFlightId=id;
+        try {
+            String name=filters.get(id);
+            inFlight=fetch.apply(id).thenApply(response->{
+                Map<String,Object> report=new LinkedHashMap<>(data(name,response,units));report.put("filterId",id);
+                synchronized(this){cachedId=id;cachedReport=report;cachedAt=System.nanoTime();}
+                return report;
+            });
+            return inFlight;
+        } catch(RuntimeException e){return failed("Não foi possível iniciar a consulta CAD");}
     }
+    private static <T> CompletableFuture<T> failed(String message) {
+        CompletableFuture<T> result=new CompletableFuture<>();result.completeExceptionally(new IllegalArgumentException(message));return result;
+    }
+    static String format(String filter,Element response,Map<String,String> units){return BotJson.text(data(filter,response,units),"text");}
     /** Conta chamadas únicas, naturezas sem duplicação por chamada e área do atendimento BM. */
-    static String format(String filter, Element response, Map<String, String> units) {
+    static Map<String,Object> data(String filter, Element response, Map<String, String> units) {
         Map<String, Element> unique = new LinkedHashMap<>();
         for (Element c : CadXml.collectionItems(response, "resumosChamadas", "resumoChamada")) {
             String id = CadXml.text(c, "idChamada");
@@ -127,8 +130,19 @@ final class CadSummary {
         });
         out.append("\nUma chamada com várias naturezas pode aparecer em mais de uma categoria. Área " +
                    "ausente não é substituída pela unidade de atendimento.");
+        Integer expectedTotal=null;
+        try{int expected=Integer.parseInt(CadXml.nestedText(response,"paginationBean","totalSize"));if(expected>=0)expectedTotal=expected;}catch(NumberFormatException ignored){}
+        boolean limited=unique.size()>=1000||(expectedTotal!=null&&expectedTotal>unique.size());
         if (unique.size() >= 1000)
             out.append("\nATENÇÃO: limite de 1.000 registros atingido; o resultado pode estar incompleto.");
-        return out.toString();
+        else if(expectedTotal!=null&&expectedTotal>unique.size())out.append("\nATENÇÃO: o CAD informou ").append(expectedTotal).append(" registros; recebidos ").append(unique.size()).append(". Resultado pode estar incompleto.");
+        List<Object> natureRows=new ArrayList<>(),areaRows=new ArrayList<>();
+        totalNatures.forEach((label,count)->natureRows.add(Java8.map("label",label,"count",count)));
+        areaCalls.forEach((label,ids)->{
+            List<Object> rows=new ArrayList<>();areaNatures.get(label).forEach((nature,count)->rows.add(Java8.map("label",nature,"count",count)));
+            areaRows.add(Java8.map("label",label,"count",ids.size(),"natures",rows));
+        });
+        return Java8.map("filterName",filter,"consultedAt",Instant.now().toString(),"total",unique.size(),
+            "limited",limited,"expectedTotal",expectedTotal,"natures",natureRows,"areas",areaRows,"text",out.toString());
     }
 }

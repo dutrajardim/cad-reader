@@ -35,3 +35,8 @@ Thumbs.db
 *.pcap
 *.pcapng
 *.tmp
+
+# Frontend (fontes e lockfile são versionados)
+/frontend/node_modules/
+/frontend/dist/
+/frontend/*.tsbuildinfo

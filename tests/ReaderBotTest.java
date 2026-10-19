@@ -96,6 +96,8 @@ public final class ReaderBotTest {
               "Deduplica chamadas e usa área BM, não unidade responsável nem PM");
         check(report.contains("S01 Animal: 1") && report.contains("S02 Árvore: 1"),
               "Naturezas contadas sem duplicar chamados");
+        Map<String,Object> partial=CadSummary.data("Parcial",xml("<rtn><paginationBean><totalSize>10</totalSize></paginationBean><resumosChamadas>"+call+"</resumosChamadas></rtn>"),Java8.map());
+        check(Boolean.TRUE.equals(partial.get("limited"))&&BotJson.text(partial,"text").contains("recebidos 1"),"Paginação parcial é sinalizada mesmo abaixo de mil ocorrências");
         String longText = Java8.repeat("linha 🚒\n", 1000);
         check(String.join("", DiscordBot.pages(longText)).equals(longText) &&
                   DiscordBot.pages(longText).stream().allMatch(p -> p.length() <= 1800),
@@ -143,7 +145,11 @@ public final class ReaderBotTest {
                             "reprimidas</descricao></i></filtrosChamada></cache>"));
         CompletableFuture<String> first = service.query("12"), second = service.query("12");
         check(first == second && queries.get() == 1, "Consultas simultâneas compartilham requisição");
+        CompletableFuture<Map<String,Object>> web=service.queryData("12");
+        check(queries.get()==1,"Web e bot compartilham consulta em andamento");
         source.complete(xml("<rtn><resumosChamadas>" + call + "</resumosChamadas></rtn>"));
+        check(((Number)web.get().get("total")).intValue()==1 && BotJson.array(web.get().get("areas")).size()==1 && BotJson.text(web.get(),"text").equals(first.get()),"Dashboard e texto do bot usam os mesmos dados e contagens");
+        service.queryData("12").get();check(queries.get()==1,"Cache é compartilhado entre bot e dashboard");
         check(service.query("12").get().equals(first.get()) && queries.get() == 1,
               "Cache curto evita nova requisição");
         FakeApi sumApi = new FakeApi();

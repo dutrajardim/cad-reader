@@ -23,15 +23,23 @@ public final class ReaderSessionTest {
         });
         java.util.concurrent.atomic.AtomicBoolean summaryRefused = new java.util.concurrent.atomic.AtomicBoolean();
         java.util.concurrent.atomic.AtomicBoolean summaryReceived = new java.util.concurrent.atomic.AtomicBoolean();
+        CadCommunication communication = new CadCommunication();
+        CadCallDetails details = new CadCallDetails();
         final CadXmppReader[] session = new CadXmppReader[1];
         session[0] = new CadXmppReader(ReaderOptions.parse(args), new CadListener() {
+            public void onCadRequest(String id,String operation,String callId,int page,String outcome,long elapsed){
+                communication.request(id,operation,callId,page,outcome,elapsed);details.request(callId,operation,page,outcome);
+            }
+            public void onCadNotification(String operation){communication.notification();}
             public void onLog(String category, String text) {
                 System.out.println("[" + category + "] " + text);
             }
             public void onHistoryFinished(String callId, boolean complete) {
+                details.finished(callId,false,complete);
                 monitor.historyFinished(callId, complete);
             }
             public void onMessage(Element message) {
+                details.accept(message);
                 monitor.accept(message);
             }
             public void onFilters(Element cache) {
@@ -58,6 +66,7 @@ public final class ReaderSessionTest {
             }
         });
         session[0].start();
+        checkCommunication(communication,details);
         if (!summaryRefused.get()) throw new AssertionError("Recusa do relatório não foi tratada isoladamente");
         if (!summaryReceived.get()) throw new AssertionError("Relatório do segundo filtro não recebido");
         if (historyEvents.get() != 1)
@@ -65,4 +74,16 @@ public final class ReaderSessionTest {
         if (resourceEvents.get() != 2)
             throw new AssertionError("Carga e atualização filtradas não recebidas");
     }
+    static void checkCommunication(CadCommunication communication,CadCallDetails details){
+        java.util.Map<String,Object> stats=communication.snapshot();
+        if(((Number)stats.get("total")).intValue()!=13 || ((Number)stats.get("completed")).intValue()!=11 || ((Number)stats.get("rejected")).intValue()!=2 || ((Number)stats.get("pending")).intValue()!=0)
+            throw new AssertionError("Contadores não correspondem às requisições reais: "+BotJson.write(stats));
+        if(((Number)BotJson.object(stats.get("operations")).get("envRecuperarResumosHistoricosChamada")).intValue()!=3)
+            throw new AssertionError("Duas páginas e uma nova consulta recusada devem contar como três requisições");
+        if(((Number)stats.get("notifications")).intValue()<1)throw new AssertionError("Atualização espontânea não contabilizada");
+        java.util.Map<String,Object> history=BotJson.object(details.get("123").get("history"));
+        if(BotJson.array(history.get("items")).size()!=2 || !BotJson.text(history,"status").equals("incomplete"))throw new AssertionError("Histórico paginado não disponível à Web: "+BotJson.write(history));
+        System.out.println("PASS telemetria passiva: contadores reais, duas páginas e histórico disponível sem novas consultas");
+    }
+
 }

@@ -1,0 +1,1 @@
+export function cadDate(value?:string){if(!value)return 'Não informado';if(/^\d{13}$/.test(value)){const date=new Date(Number(value));return Number.isNaN(date.getTime())?value:date.toLocaleString('pt-BR')}if(/^\d{4}-\d\d-\d\dT/.test(value)){const date=new Date(value);if(!Number.isNaN(date.getTime()))return date.toLocaleString('pt-BR')}return value}

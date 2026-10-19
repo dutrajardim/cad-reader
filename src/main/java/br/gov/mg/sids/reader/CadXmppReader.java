@@ -93,6 +93,11 @@ public final class CadXmppReader implements AutoCloseable {
     private volatile String timeoutError;
     private long lastPingNanos = System.nanoTime();
 
+    public synchronized void requestWebHistory(String callId) throws IOException {
+        if(closed || !prerequisitesReady)throw new IllegalArgumentException("Conecte ao CAD e aguarde a sessão ficar pronta.");
+        requestHistory(callId);
+    }
+
     /** Enfileira uma consulta de leitura; consultas repetidas são agrupadas por chamada. */
     public synchronized void requestHistory(String callId) throws IOException {
         if (closed || !prerequisitesReady || !callId.matches("[1-9][0-9]*"))
@@ -150,6 +155,7 @@ public final class CadXmppReader implements AutoCloseable {
         activeQuery = null;
         if (!query.participants)
             listener.onHistoryFinished(query.callId, succeeded);
+        else listener.onParticipantsFinished(query.callId, succeeded);
         if (query.dirty && succeeded) {
             ReadQuery refresh = new ReadQuery(query.callId);
             readQueries.put(refresh.callId, refresh);
@@ -167,6 +173,7 @@ public final class CadXmppReader implements AutoCloseable {
             return;
         }
         message.setAttribute("readerCallId", query.callId);
+        message.setAttribute("readerQueryPage", Integer.toString(query.page));
         listener.onMessage(message);
         String total = CadXml.nestedText(message, "paginationBean", "totalSize");
         String size = CadXml.nestedText(message, "paginationBean", "pageSize");
@@ -428,6 +435,7 @@ public final class CadXmppReader implements AutoCloseable {
                 throw new IOException("Resposta inesperada para " + request.tag + ": " + tag);
             if (!pending.remove(message.getAttribute("id"), request))
                 return;
+            observeRequest(message.getAttribute("id"),request,"0".equals(message.getAttribute("status"))?"ok":"rejected");
             java.util.concurrent.CompletableFuture<Element> summary = summaryRequests.remove(message.getAttribute("id"));
             if (summary != null) {
                 if ("0".equals(message.getAttribute("status"))) summary.complete(message);
@@ -446,6 +454,7 @@ public final class CadXmppReader implements AutoCloseable {
                                       + "; " + (xml != null ? xml : CadXml.serialize(message)));
             log("RESPONSE", tag + " id=" + message.getAttribute("id") + " sucesso");
         }
+        if(tag.startsWith("envInformarAlteracao"))try{listener.onCadNotification(tag);}catch(RuntimeException ignored){}
         listener.onMessage(message);
         switch (tag) {
         case "rtnIniciarSessao":
@@ -590,16 +599,23 @@ public final class CadXmppReader implements AutoCloseable {
                         + "'";
         PendingRequest request = new PendingRequest(tag, options.requestTimeoutSeconds, query);
         pending.put(id, request);
+        observeRequest(id,request,"started");
         try {
             sendXml("<message xmlns='" + CLIENT + "' from='" + CadXml.escape(boundJid) + "'><" + tag
                     + " xmlns='" + CadXml.CAD + "' id='" + id + "'" + timestamp + attributes + ">"
                     + CadXml.field("ipLocal", socket.getLocalAddress().getHostAddress()) + content + "</"
                     + tag + "></message>");
         } catch (IOException e) {
-            pending.remove(id);
+            if(pending.remove(id,request))observeRequest(id,request,"send_error");
             throw e;
         }
         log("REQUEST", tag + " id=" + id);
+    }
+
+    private void observeRequest(String id,PendingRequest request,String outcome) {
+        try {listener.onCadRequest(id,request.tag,request.query==null?"":request.query.callId,
+            request.query==null?0:request.query.page,outcome,TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-request.startedNanos));}
+        catch(RuntimeException ignored) { /* Telemetria nunca altera a comunicação CAD. */ }
     }
 
     /** Verifica prazos independentemente dos pings; fecha conexão ao detectar falha. */
@@ -610,12 +626,13 @@ public final class CadXmppReader implements AutoCloseable {
                 if (now >= entry.getValue().deadlineNanos) {
                     java.util.concurrent.CompletableFuture<Element> summary = summaryRequests.remove(entry.getKey());
                     if (summary != null) {
-                        pending.remove(entry.getKey());
+                        if(pending.remove(entry.getKey(),entry.getValue()))observeRequest(entry.getKey(),entry.getValue(),"timeout");
                         summary.completeExceptionally(new IOException("Consulta CAD sem resposta no prazo"));
                         continue;
                     }
                     if (entry.getValue().query != null) {
                         if (pending.remove(entry.getKey(), entry.getValue())) {
+                            observeRequest(entry.getKey(),entry.getValue(),"timeout");
                             log(entry.getValue().query.participants ? "ENVOLVIDOS" : "HISTORICO",
                                 "Consulta sem resposta para chamada " + entry.getValue().query.callId
                                     + ". Monitoramento mantido.");
@@ -623,6 +640,7 @@ public final class CadXmppReader implements AutoCloseable {
                         }
                         continue;
                     }
+                    if(pending.remove(entry.getKey(),entry.getValue()))observeRequest(entry.getKey(),entry.getValue(),"timeout");
                     timeoutError = "Sem resposta CAD para " + entry.getValue().tag + " id=" + entry.getKey()
                                    + " após " + options.requestTimeoutSeconds
                                    + "s. Pings não confirmam processamento CAD. "
@@ -711,9 +729,11 @@ private void enableCompression() throws IOException {
 /** Encerra o socket e o scheduler, inclusive quando há erro de autenticação. */
 @Override
 public void close() {
+    closed = true;
+    for(Map.Entry<String,PendingRequest> entry:pending.entrySet())
+        if(pending.remove(entry.getKey(),entry.getValue()))observeRequest(entry.getKey(),entry.getValue(),"interrupted");
     summaryRequests.values().forEach(f -> f.completeExceptionally(new IOException("Sessão CAD encerrada")));
     summaryRequests.clear();
-    closed = true;
     scheduler.shutdownNow();
     try {
         if (socket != null)
@@ -745,6 +765,7 @@ public static void main(String[] args) {
 /** Pedido aguardando resposta, identificado pelo atributo CAD id. */
 private static final class PendingRequest {
     final String tag, responseTag;
+    final long startedNanos = System.nanoTime();
     final long deadlineNanos;
     final ReadQuery query;
     PendingRequest(String tag, int seconds, ReadQuery query) {

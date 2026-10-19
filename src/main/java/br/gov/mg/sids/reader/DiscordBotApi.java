@@ -2,11 +2,14 @@ package br.gov.mg.sids.reader;
 
 import java.io.*;
 import java.net.*;
+import java.net.http.*;
+import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /** REST autenticado do bot. Só HTTP 429 é repetido; falhas ambíguas não repetem publicações. */
 class DiscordBotApi implements AutoCloseable {
-    /** O Discord usa somente HTTPS; proxy explícito evita depender da descoberta automática do OkHttp. */
+    /** Proxy explícito preserva as configurações HTTPS/HTTP da aplicação. */
     static Proxy discordProxy() {
         String host = System.getProperty("https.proxyHost", "").trim();
         String port = System.getProperty("https.proxyPort", "").trim();
@@ -23,80 +26,82 @@ class DiscordBotApi implements AutoCloseable {
         }
         return null;
     }
-    interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
+    interface Transport { Response send(HttpRequest request) throws IOException, InterruptedException; }
+    static final class Response {
+        final int status;
+        final HttpHeaders headers;
+        final String body;
+        Response(int status, HttpHeaders headers, String body) {
+            this.status = status;
+            this.headers = headers;
+            this.body = body;
+        }
+    }
     private final String token;
-    private final ConnectionFactory factory;
+    private final Transport transport;
     private volatile boolean closed;
     private volatile long blockedUntil;
-    DiscordBotApi(String token) { this(token, DiscordBotApi::openDefault); }
-    DiscordBotApi(String token, ConnectionFactory factory) {
+    DiscordBotApi(String token) { this(token, defaultTransport()); }
+    DiscordBotApi(String token, Transport transport) {
         if (!token.matches("[A-Za-z0-9._-]{20,200}"))
             throw new IllegalArgumentException(
                 "Token do bot inválido; copie apenas o token, sem prefixo Bot ou espaços");
         this.token = token;
-        this.factory = factory;
+        this.transport = transport;
     }
-    private static HttpURLConnection openDefault(URL target) throws IOException {
+    static Transport defaultTransport() {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NEVER);
         Proxy proxy = discordProxy();
-        return (HttpURLConnection)(proxy == null ? target.openConnection() : target.openConnection(proxy));
+        if (proxy != null)
+            builder.proxy(ProxySelector.of((InetSocketAddress)proxy.address()));
+        HttpClient client = builder.build();
+        return request -> {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return new Response(response.statusCode(), response.headers(), response.body());
+        };
     }
     Object request(String method, String path, Object body) throws Exception {
         if (!path.startsWith("/") || path.contains(".."))
             throw new IllegalArgumentException("Rota inválida");
         for (int attempt = 0; attempt < 5; attempt++) {
             awaitLimit();
-            HttpURLConnection connection = null;
-            try {
-                URL target = URI.create("https://discord.com/api/v10" + path).toURL();
-                connection = factory.open(target);
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setInstanceFollowRedirects(false);
-                connection.setUseCaches(false);
-                connection.setRequestMethod(method);
-                connection.setRequestProperty("Authorization", "Bot " + token);
-                connection.setRequestProperty("User-Agent", "CAD-Reader (Java, 1.0)");
-                connection.setRequestProperty("Accept", "application/json");
-                byte[] payload = body == null ? null
-                    : BotJson.write(body).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                if (payload != null || method.equals("POST") || method.equals("PUT") || method.equals("PATCH")) {
-                    if (payload == null) payload = new byte[0];
-                    connection.setDoOutput(true);
-                    connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                    connection.setFixedLengthStreamingMode(payload.length);
-                    try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-                }
-                int status = connection.getResponseCode();
-                String remaining = connection.getHeaderField("X-RateLimit-Remaining");
-                String reset = connection.getHeaderField("X-RateLimit-Reset-After");
-                InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                String response = "";
-                if (stream != null)
-                    try (InputStream input = stream) {
-                        response = new String(Java8.readAllBytes(input), java.nio.charset.StandardCharsets.UTF_8);
-                    }
-                Object data;
-                try {
-                    data = response.trim().isEmpty() ? Java8.map() : BotJson.parse(response);
-                } catch (IllegalArgumentException invalidJson) {
-                    if (status >= 200 && status < 300) throw invalidJson;
-                    data = Java8.map();
-                }
-                if (status == 429) {
-                    double seconds = Double.parseDouble(BotJson.object(data).getOrDefault("retry_after", 5).toString());
-                    blockedUntil = System.nanoTime() + (long)(Math.max(1, seconds) * 1_000_000_000L);
-                    continue;
-                }
-                if ("0".equals(remaining)) {
-                    double seconds = Double.parseDouble(reset == null ? "1" : reset);
-                    blockedUntil = System.nanoTime() + (long)(Math.max(0, seconds) * 1_000_000_000L);
-                }
-                if (status < 200 || status >= 300)
-                    throw failure(status, data);
-                return data;
-            } finally {
-                if (connection != null) connection.disconnect();
+            byte[] payload = body == null ? null : BotJson.write(body).getBytes(StandardCharsets.UTF_8);
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("https://discord.com/api/v10" + path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bot " + token)
+                .header("User-Agent", "CAD-Reader (Java, 1.0)")
+                .header("Accept", "application/json");
+            if (payload != null || method.equals("POST") || method.equals("PUT") || method.equals("PATCH")) {
+                if (payload == null) payload = new byte[0];
+                builder.header("Content-Type", "application/json; charset=UTF-8");
             }
+            builder.method(method, payload == null ? HttpRequest.BodyPublishers.noBody()
+                                                   : HttpRequest.BodyPublishers.ofByteArray(payload));
+            Response result = transport.send(builder.build());
+            int status = result.status;
+            String remaining = result.headers.firstValue("X-RateLimit-Remaining").orElse(null);
+            String reset = result.headers.firstValue("X-RateLimit-Reset-After").orElse(null);
+            String response = result.body;
+            Object data;
+            try {
+                data = response.trim().isEmpty() ? Java8.map() : BotJson.parse(response);
+            } catch (IllegalArgumentException invalidJson) {
+                if (status >= 200 && status < 300) throw invalidJson;
+                data = Java8.map();
+            }
+            if (status == 429) {
+                double seconds = Double.parseDouble(BotJson.object(data).getOrDefault("retry_after", 5).toString());
+                blockedUntil = System.nanoTime() + (long)(Math.max(1, seconds) * 1_000_000_000L);
+                continue;
+            }
+            if ("0".equals(remaining)) {
+                double seconds = Double.parseDouble(reset == null ? "1" : reset);
+                blockedUntil = System.nanoTime() + (long)(Math.max(0, seconds) * 1_000_000_000L);
+            }
+            if (status < 200 || status >= 300)
+                throw failure(status, data);
+            return data;
         }
         throw new IOException("Discord manteve limite de requisições; tente novamente mais tarde");
     }

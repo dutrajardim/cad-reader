@@ -3,6 +3,8 @@
 ## Compilar
 
 ```sh
+npm ci --prefix frontend
+npm run build --prefix frontend
 mvn package
 ```
 
@@ -12,9 +14,9 @@ O build Maven compila e empacota; não executa os testes Java desta pasta automa
 python tests/run_tests.py
 ```
 
-No Linux, use `python3` se necessário. O script compila todos os testes em uma pasta temporária e executa onze cenários sem interface, com o separador de classpath apropriado para Windows/Linux. Falhas retornam código diferente de zero. Não usa credenciais reais nem acessa o CAD/Discord.
+No Linux, use `python3` se necessário. O script compila todos os testes em uma pasta temporária e executa doze cenários sem interface, com o separador de classpath apropriado para Windows/Linux. Falhas retornam código diferente de zero. Não usa credenciais reais nem acessa o CAD/Discord.
 
-O GitHub Actions compila em JDK 11 e executa essa suíte e `java -jar ... --help` em Java 8 e Java 11 no Windows e no Linux, além do broker simulado no Linux. Os testes com janelas e o broker não fazem parte de `run_tests.py`. Os comandos detalhados abaixo usam shell Linux; no Windows, o separador do classpath é `;`, em vez de `:`.
+O GitHub Actions compila em JDK 11 e executa essa suíte e `java -jar ... --help` em Java 11 no Windows e no Linux, além do broker simulado no Linux. Os testes com janelas e o broker não fazem parte de `run_tests.py`. Os comandos detalhados abaixo usam shell Linux; no Windows, o separador do classpath é `;`, em vez de `:`.
 
 ## Formatação, perfis e publicador
 
@@ -150,3 +152,46 @@ xvfb-run -a java -XX:-UsePerfData -cp target/java-cad-reader-1.0.0.jar:/tmp/cad-
 ```
 
 `ReaderBotStartupTest` simula HTTP 403 nas quatro etapas do início, verifica identificação da etapa e código Discord, instruções de configuração e ausência de token/corpo externo no diagnóstico. Não acessa a rede.
+
+`ReaderBotHttpTest` verifica requisições REST com `java.net.http` (Java 11), autenticação, timeout, UTF-8, repetição após HTTP 429, diagnóstico HTTP 403 e ausência de repetição pela aplicação após falha de rede. Inclui envio real de `PATCH` para um servidor temporário em localhost, evitando que uma conexão simulada esconda incompatibilidades do transporte. Não acessa Discord nem CAD; `--no-sockets` executa apenas os cenários sem servidor local.
+
+
+`ReaderOperationalTest` verifica a projeção operacional: carga inicial, escopo de recursos, classificação/remoção de chamadas, coordenadas inválidas, desconexão com dados antigos, bloqueio de cálculos antigos e reset de sessão. Verifica ainda persistência/validação atômica do cadastro, URL de servidor próprio, perfis físicos, ausência de conexão automática, cache, ordem base → ocorrência e geometria GeoJSON com Valhalla simulado. A parte HTTP usa somente localhost, valida o frontend servido pelo JAR, acesso ao estado e recusa de escrita sem token ou de origem externa. `--no-sockets` pula essa parte. A suíte requer o frontend compilado e incluído no JAR, sem acessar CAD, Google Maps, FOSSGIS ou tiles externos.
+
+
+## CSV e abas administrativas da Web
+
+Execute `npm test --prefix frontend` antes de `npm run build --prefix frontend`. Os testes compilam os módulos TypeScript para uma pasta temporária e usam asserções Node sem dependências adicionais. Cobrem UTF-8/BOM, delimitadores, aspas, campos multilinha, vírgula decimal, IDs textuais, round-trip de unidades/perfis, campos pendentes sem coordenadas falsas, erros por linha, duplicatas, cabeçalhos, dimensões inválidas, datas, URLs de fonte, proteção de fórmulas, limites e mescla/substituição sem mutar o cadastro anterior. Conferem também as seis linhas do CSV oficial pesquisado. O CI executa esses testes antes de empacotar a Web.
+
+`ReaderOperationalTest` verifica também a persistência do endereço/fonte/data/observações de uma base com coordenadas e vínculo CAD pendentes, recusa de coordenadas parciais/fontes inseguras, bloqueio de rota sem origem e download do CSV com MIME correto a partir do JAR.
+
+### Atualizações da interface operacional
+
+`npm test --prefix frontend` verifica CSV, coordenadas das seis bases e regras de filtro. `ReaderOperationalTest` cobre matriz com múltiplas origens, sentido base→ocorrência, parâmetros físicos, par inalcançável, cache, bloqueio desconectado, buffer limitado de eventos e API de eventos. Os serviços externos não são acessados.
+
+Conferência de navegador: letra no marcador; hover compacto; clique abre detalhes sem selecionar; duplo clique seleciona; seletores pesquisáveis com opções do recorte; lista e mapa sincronizados; painéis recolhíveis e tela cheia; comparação com uma matriz por perfil e geometria somente ao clicar no resultado; dashboard e eventos; ajustes de Valhalla em Configurações; navegação móvel sem rolagem horizontal. Em execução real, confira as confirmações/pausas do publicador na página Eventos e o portão de saída das bases.
+
+A suíte Web também verifica os rótulos de empenho, polling serial, pausa/retomada por visibilidade, limpeza dos temporizadores e revalidação HTTP 304. `ReaderOperationalTest` verifica cache da projeção sem mudança, invalidação por alteração real, mensagens irrelevantes para o mapa, cursor incremental de eventos e ETag na API local. Conferência no Chrome: etiquetas de viaturas, legenda recolhida/expandida, alternância ruas/satélite e observação do DOM sem recriar marcadores após uma resposta 304.
+
+### Comunicação passiva e dados locais das ocorrências
+
+`ReaderOperationalTest` verifica contadores deduplicados, interrupção de pendências na reconexão, limite da tabela, histórico/contatos recebidos sem iniciar consultas, paginação desconhecida e limpeza da sessão. As APIs `/api/communication` e `/api/call?id=...` são de leitura local e usam ETag. `ReaderSessionTest`, executado pelo broker simulado, confere os contadores contra 13 requisições reais do cenário (11 sucessos, 2 recusas), incluindo duas páginas de histórico e uma consulta posterior recusada. O histórico anteriormente recebido permanece no cache com indicação de consulta incompleta. Os demais cenários do broker verificam TLS, compressão, filtros, recusas e timeout.
+
+Conferência no navegador: páginas Comunicação/Ocorrências/Viaturas; filtro por operação; navegação requisição → ocorrência → histórico/contatos → mapa; indicadores CAD/Valhalla acessíveis por mouse e teclado; navegação móvel e ausência de pedidos CAD criados ao abrir detalhes. Históricos ausentes devem mostrar o estado do cache, nunca iniciar consultas silenciosas.
+
+### Visão padrão, áreas e somatório Web
+
+A suíte TypeScript cobre classificação exclusiva de viaturas, restrições, áreas sem duplicação por ocorrência e validação da visualização salva. `ReaderOperationalTest` verifica a origem BM da unidade de área, catálogo local de filtros sem consulta, proteção do POST de somatório, bloqueio de consultas concorrentes, disponibilidade da API de estado durante o pedido, cache compartilhado com o bot e preservação das ocorrências do mapa. `ReaderBotTest` verifica que texto do bot e dados do dashboard usam o mesmo resultado.
+
+Conferência no Chrome: ponto distante não muda o zoom 14 inicial; filtros preservam enquadramento; salvar/restaurar visão funciona após recarregar; resumo de viaturas e gráfico de área BM; escolher filtro sem consultar; consulta somente pelo botão; navegar preserva resultado sem repetir pedido; copiar texto e PNG para clipboard; baixar PNG válido de 1.200 pixels de largura; navegação móvel sem rolagem horizontal. O teste usa respostas simuladas e o contexto local seguro para clipboard; não acessa CAD, Valhalla ou WhatsApp reais.
+
+### Centralização da área e falha de carregamento de classes
+
+O enquadramento automático ao abrir/filtrar foi restaurado. O botão por ícone centraliza Contagem com zoom 14 sem excluir atendimentos distantes; a leitura periódica de dados não desfaz essa centralização. A visualização salva anteriormente não controla mais a abertura do mapa.
+
+`ReaderOperationalTest.linkageHttp` simula `NoClassDefFoundError` no transporte do Valhalla e verifica duas respostas HTTP 503 com orientação de reinício, além da continuidade de `/api/state`. Não simula rede externa nem altera o proxy. Conferência no Chrome: enquadramento inicial inclui ponto distante; botão Contagem centraliza; polling mantém posição; mudança do filtro volta a enquadrar os pontos.
+
+
+### Detalhes da ocorrência em janela sobre o mapa (18/10/2026)
+
+Removida a página Ocorrências do menu; os atalhos abrem resumo, histórico e envolvidos em diálogo modal com os dados locais recebidos. Testes do frontend e build TypeScript/Vite passaram. Validação no Chrome com dados simulados passou para abertura, histórico, fechamento por Esc/botão, retorno ao mapa, tela cheia e largura de celular. Maven package passou; integridade do JAR e correspondência dos arquivos frontend/dist com os recursos web incorporados verificadas.

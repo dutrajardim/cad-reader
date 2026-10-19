@@ -1,0 +1,12 @@
+import Help from './Help'
+import ResourceSummary from './ResourceSummary'
+import BarChart from './BarChart'
+import {areaSummary} from './areaSummary'
+import type { Call, Resource } from './types'
+import { assignmentLabel, groupColor, groupOptions, natureOptions, natureKey, naturesOf } from './callFilters'
+export default function Dashboard({calls,resources,ready}:{calls:Call[];resources:Resource[];ready:boolean}) {
+ const groups=groupOptions(calls), natures=natureOptions(calls,'all').map(n=>({label:[n.code,n.description].filter(Boolean).join(' · '),count:calls.filter(c=>naturesOf(c).some(v=>natureKey(v)===natureKey(n))).length})).sort((a,b)=>b.count-a.count).slice(0,12)
+ const assignments=['linked','reported','unlinked','unknown'].map(status=>({label:assignmentLabel({assignmentStatus:status} as Call),count:calls.filter(c=>c.assignmentStatus===status).length}))
+
+ return <main className="admin-page dashboard"><div className="section-heading"><h2>Ocorrências ativas</h2><Help>Retrato atual das ocorrências recebidas no filtro CAD. Atualização automática, independente dos filtros de visualização da página do mapa.</Help></div><div className="metrics">{[['Ativas',calls.length],['Com viatura identificada',calls.filter(c=>c.assignmentStatus==='linked').length],['Sem vínculo observado',calls.filter(c=>c.assignmentStatus==='unlinked').length],['Sem coordenadas',calls.filter(c=>c.lat===null||c.lon===null).length]].map(([label,n])=><article className="card" key={label}><span>{label}</span><strong>{n}</strong></article>)}</div><ResourceSummary resources={resources} ready={ready}/>{!calls.length?<div className="card">Aguardando ocorrências do CAD.</div>:<div className="admin-grid"><section className="card"><h3>Grupos de natureza</h3><BarChart items={groups.map(([g,count])=>({label:g==='?'?'Sem código':`Grupo ${g}`,count,color:groupColor(g)}))}/></section><section className="card"><h3>Vínculo com viaturas</h3><BarChart items={assignments}/></section><section className="card full-width"><h3>Ocorrências por unidade de área — BM</h3><Help>Usa idUnidadeArea dos atendimentos BM. Uma chamada pode pertencer a mais de uma área; dados ausentes não são substituídos pela unidade da viatura.</Help><BarChart items={areaSummary(calls)}/></section><section className="card full-width"><h3>Naturezas mais frequentes</h3><Help>Uma ocorrência com várias naturezas conta em cada natureza e grupo correspondente. Totais de categorias podem superar o número de ocorrências.</Help><BarChart items={natures}/></section></div>}</main>
+}

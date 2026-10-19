@@ -8,7 +8,7 @@ Os tópicos do Discord usam o prefixo normalizado da viatura: `UR05471 (2BBM)` e
 
 A aplicação tem interface gráfica. Informe usuário e senha do CAD na própria janela, depois de abrir o programa.
 
-Requisitos: Java 8 (1.8) atualizado ou superior no `PATH`, ambiente gráfico e acesso de rede ao CAD. O mesmo JAR funciona no Windows e no Linux. Para executar, não é necessário instalar Maven ou Python. O Java não está incluído no download; no Linux, use uma instalação com suporte à interface gráfica, em vez de somente o pacote headless.
+Requisitos: Java 11 atualizado ou superior no `PATH`, ambiente gráfico e acesso de rede ao CAD. O mesmo JAR funciona no Windows e no Linux. Para executar, não é necessário instalar Maven ou Python. O Java não está incluído no download; no Linux, use uma instalação com suporte à interface gráfica, em vez de somente o pacote headless.
 
 ### Baixar e abrir no Windows
 
@@ -28,7 +28,7 @@ Para abrir novamente sem baixar, use no PowerShell ou no Prompt de Comando:
 java -jar .\cad-reader.jar
 ```
 
-Se `java` não for reconhecido, instale Java 8 ou superior, configure seu diretório `bin` no `PATH` e abra um novo terminal. Confira com `java -version`.
+Se `java` não for reconhecido, instale Java 11 ou superior, configure seu diretório `bin` no `PATH` e abra um novo terminal. Confira com `java -version`.
 
 ### Baixar e abrir no Linux
 
@@ -47,7 +47,7 @@ Para abrir novamente sem baixar:
 java -jar ./cad-reader.jar
 ```
 
-Se `java` não for encontrado, instale Java 8 ou superior com suporte gráfico e verifique o `PATH` com `java -version`.
+Se `java` não for encontrado, instale Java 11 ou superior com suporte gráfico e verifique o `PATH` com `java -version`.
 
 ### Download manual e atualizações
 
@@ -67,14 +67,16 @@ Não é necessário criar arquivo `.env` nem configurar variáveis de ambiente c
 
 ### Compilar localmente
 
-Requer JDK 11+ e Maven 3.6.3+ no `PATH`. Execute na raiz do repositório, que corresponde ao conteúdo de `java-cad-reader`:
+Requer JDK 11+, Maven 3.6.3+ e Node.js 22 com npm no `PATH`. Execute na raiz do repositório, que corresponde ao conteúdo de `java-cad-reader`:
 
 ```sh
+npm ci --prefix frontend
+npm run build --prefix frontend
 mvn --batch-mode --no-transfer-progress clean verify
 java -jar target/java-cad-reader-1.0.0.jar
 ```
 
-O JAR contém a aplicação, o manifesto executável e as bibliotecas de HTTP/WebSocket necessárias; não precisa das pastas do projeto original que ficam fora deste repositório.
+O JAR contém a aplicação, a interface Web compilada e o manifesto executável; não precisa das pastas do projeto original que ficam fora deste repositório.
 
 ## Builds e versões automáticas
 
@@ -252,3 +254,76 @@ Use **Configurar bot** para informar token próprio, servidor, fórum e cargo au
 - `/cad-reader limpar antes-de:AAAA-MM-DD` mostra uma prévia e pede confirmação para apagar mensagens de todos os autores anteriores à data, no tópico atual do fórum configurado. O corte é exclusivo, à meia-noite de Brasília; escolha a data desejada, por exemplo três dias atrás. Não identifica chamados ainda abertos.
 
 O bot só funciona com a aplicação aberta e conectada. A limpeza é irreversível e inclui fotos e textos das equipes. Não altera dados no CAD.
+
+
+## Mapa operacional Web (primeira versão)
+
+1. Abra o JAR e clique em **Abrir mapa Web** na janela desktop. O servidor escuta em todas as interfaces IPv4 (`0.0.0.0`). Neste computador, o botão abre `http://127.0.0.1:8080`; em outros dispositivos da rede, use `http://IP_DO_COMPUTADOR:8080`. Se a porta 8080 estiver ocupada, outra porta é escolhida e informada no log; use essa mesma porta no acesso pela rede. O firewall precisa permitir conexões nessa porta. O acesso pela rede disponibiliza os dados e operações da interface aos dispositivos que alcançam essa porta, sem login adicional; use em rede confiável. Fechar a janela encerra o servidor Web.
+2. Conecte ao CAD, selecione os filtros e inicie o monitoramento como antes. A Web usa a mesma sessão, sem consultas periódicas ao CAD. Ela verifica a versão do estado local a cada três segundos, sem sobrepor pedidos, e pausa quando a aba fica oculta. Sem alteração, o servidor responde HTTP 304 sem reenviar o retrato. A projeção em memória e os marcadores sem mudança são reaproveitados. A busca abrange apenas as ocorrências recebidas pelo filtro atual; itens sem coordenadas continuam na lista. Ocorrências classificadas deixam o mapa. Ao desconectar, o estado anterior é identificado como desatualizado e novos cálculos ficam bloqueados.
+   Os filtros de grupo (primeira letra do código), natureza, vínculo com viatura e texto atualizam lista e mapa juntos. Os seletores aceitam pesquisa e mostram opções com resultados no recorte dos demais filtros. Passe o mouse no ponto para um resumo lateral, clique para abrir os detalhes e dê dois cliques para selecionar. Cor e letra identificam o grupo da natureza; **V** indica viatura identificada, **—** ausência de vínculo observado e **?** identificação pendente. Ausência de vínculo observado depende dos dados recebidos pelo CAD e não comprova ausência de atendimento.
+3. Na aba **Unidades**, cadastre cada base com nome e endereço ou coordenadas. O ID da unidade CAD pode ser associado depois. Bases sem coordenadas ficam pendentes e não entram no mapa/Valhalla, mas podem abrir a rota por endereço no Google Maps. A administração de **Perfis de veículo** fica em outra aba. Os IDs conhecidos dos recursos recebidos são sugeridos. Clique em adicionar/atualizar para incluir o formulário na lista e em **Salvar cadastro** para gravar. A unidade administrativa pode ter mais de uma base; a origem adotada é sempre a base cadastrada, não uma posição GPS da viatura.
+4. Os perfis iniciais **Carro padrão** e **Caminhão padrão** têm valores físicos explícitos, editáveis. É possível criar outros perfis. Campos não preenchidos em um perfil personalizado seguem os padrões do servidor. A comparação usa ocorrência, bases e perfis, sem seletor de tipo de recurso CAD. A seleção de perfil de rota é manual; não determina aptidão operacional automaticamente.
+5. Selecione uma ocorrência. Cada base oferece **Abrir no Google Maps**, em outra aba, da base à ocorrência no modo carro, sem chave de API. O Google calcula sua própria rota e seus valores não são importados para a aplicação.
+6. O Valhalla é **opcional e começa desconectado**, inclusive após reabrir a aplicação. Na página **Configurações**, informe o endereço e clique em **Conectar** para habilitar os cálculos. É possível trocar a URL por um servidor próprio HTTP/HTTPS, inclusive na rede interna e com prefixo de caminho. Salvar outro endereço desconecta o anterior. Erros ou ausência do motor não bloqueiam o mapa, os cadastros, Google Maps, CAD ou Discord.
+7. **Comparar unidades** usa a [matriz do Valhalla](https://valhalla.github.io/valhalla/api/matrix/api-reference/), com as bases nas origens e a ocorrência no destino: uma consulta por perfil a cada lote de até 25 bases, serializada e com cache de cinco minutos. Todos os resultados do lote são apresentados juntos. Pares inalcançáveis ou servidor sem suporte à matriz mostram erro, sem substituir a matriz por consultas individuais. Clique no tempo para consultar e desenhar somente esse trajeto; a geometria não é solicitada para todas as bases. Falhas de um percurso são exibidas sem inventar distância em linha reta ou substituir silenciosamente caminhão por carro. As estimativas não incluem mobilização e não pressupõem trânsito em tempo real. Recursos disponíveis são os que o CAD informou como disponíveis e sem restrição textual de empenho, limitados ao filtro de unidades/tipos; disponibilidade não comprova aptidão, equipe ou presença na base.
+
+Ao lado do símbolo da ocorrência aparecem os prefixos das viaturas vinculadas e os estados de empenho recebidos: no local, a caminho, em direção, em retorno e outros. As siglas seguem as mesmas interpretações de `CadMonitor.label`; códigos desconhecidos permanecem explícitos. As etiquetas não representam GPS das viaturas. A legenda começa recolhida e pode ser expandida.
+
+O mapa tem controles para recolher os painéis de ocorrências/atendimento e entrar em tela cheia (Esc sai). Ao entrar em tela cheia, os painéis são ocultados e podem ser reabertos pelos controles. As explicações de funcionamento ficam nos ícones **?**, acessíveis por mouse ou foco do teclado.
+
+A página **Dashboard** resume as ocorrências ativas do filtro CAD, com totais, grupos/naturezas e vínculo com viaturas. Ocorrências com várias naturezas podem aparecer em mais de uma categoria; os filtros visuais do mapa não alteram o dashboard. **Eventos** acompanha os mesmos eventos e registros da janela Java, incluindo eventos somente locais, encaminhamento à fila, confirmação de publicação e falhas/pausas. Mantém até 1.000 registros na memória desta execução, inclusive durante reconexões; não é uma importação do histórico antigo. A confirmação do Discord pode agrupar vários eventos da mesma viatura/chamada. As atualizações trazem somente eventos posteriores ao cursor local. A lista exibe 100 registros por vez, com opção de mostrar mais; os detalhes só são montados ao expandir um registro. **Configurações** mostra o estado da sessão e os IDs dos filtros sem expor credenciais; autenticação CAD e publicação continuam configuradas no desktop.
+
+A janela **Detalhes e histórico recebido**, acessível pelo mapa e pelos vínculos de ocorrências em outras telas, organiza resumo, endereço/complemento/referência, viaturas vinculadas, **Histórico** e **Envolvidos**, com atalhos para o mapa. **Viaturas** lista os recursos recebidos, unidade, tipo, placa, situação, restrição e empenhos conhecidos. Esses dados são reaproveitados do fluxo Java: abrir esses detalhes ou navegar em Viaturas **não solicita histórico, envolvidos ou resumos ao CAD**. Se o conteúdo não chegou, não é preenchido por uma consulta automática. O cache de detalhes guarda até 50 ocorrências, 200 históricos e 100 contatos por ocorrência, 8.000 caracteres por campo de texto e 4 milhões de caracteres no total. Limites atingidos e consultas incompletas são sinalizados. O cache é limpo ao iniciar outra conexão/monitoramento e não é gravado em disco pela Web.
+
+**Comunicação** observa os pontos reais de envio/resposta do leitor XMPP. Mostra requisições iniciadas, respostas CAD com status de sucesso, recusas, tempo limite, falhas de envio, interrupções, pendências e tempo médio das respostas bem-sucedidas. Cada página é uma requisição; pedidos locais agrupados na fila só entram no contador quando são iniciados. Relatórios do bot também entram. Atualizações espontâneas são contadas separadamente. Pings XMPP, autenticação TLS/SASL e consultas HTTP locais da Web não são contados como requisições CAD. Os contadores acumulam durante a execução do Java, incluindo reconexões; a tabela mantém até 300 requisições recentes. Não guarda corpos XML, senhas, tokens ou webhooks. Abrir o painel não envia solicitações ao CAD.
+
+O cabeçalho tem indicadores por ícone para **CAD** e **Valhalla**, com descrição ao passar o mouse ou focar com o teclado. Clicar no CAD abre Comunicação; clicar no Valhalla abre Configurações. O indicador Valhalla reflete a conexão explicitamente habilitada na aplicação; não faz sondagens periódicas ao serviço. Os ícones são SVG locais, sem pacote ou serviço externo adicional.
+
+O mapa enquadra automaticamente as ocorrências ao abrir e ao mudar os filtros, incluindo atendimentos distantes vinculados às viaturas acompanhadas. O botão com ícone **Centralizar área de articulação — Contagem** centraliza Contagem com zoom 14. Não é preciso remover os pontos distantes para usar esse atalho. O polling de atualizações não reposiciona continuamente o mapa. O antigo padrão salvo no navegador não substitui esse enquadramento automático.
+
+O resumo **Situação das viaturas**, disponível no mapa (recolhível), Dashboard e Viaturas, agrupa disponíveis, empenhadas, indisponíveis e outros estados. Informa também restrições e disponíveis sem restrição informada; um vínculo ativo conhecido prevalece sobre uma situação de disponibilidade inconsistente. Ao desconectar, os dados são identificados como não confirmados.
+
+O Dashboard mostra **ocorrências por unidade de área BM**, usando `idUnidadeArea` e o catálogo já recebido na sessão. Não usa a unidade responsável, a base da viatura ou atendimentos PM para preencher esse dado. Uma ocorrência com mais de uma área pode contar em cada área; ausência é exibida explicitamente.
+
+A aba **Somatório** permite escolher qualquer filtro de ocorrências do catálogo e clicar em **Consultar filtro**, sem precisar iniciar o bot Discord. Reutiliza `CadSummary`, a mesma consulta do bot, mantendo o filtro de acompanhamento e o mapa intactos. A consulta só ocorre por ação explícita; bot e Web compartilham o pedido em andamento e cache de 30 segundos. Há limite de uma consulta Web em andamento. O resultado fica como retrato datado, inclusive ao navegar entre abas, sem atualização automática. O painel Comunicação registra a requisição quando ela é efetivamente iniciada, salvo reaproveitamento de cache. Limites de retorno/paginação incompleta são sinalizados.
+
+O resultado oferece **Copiar texto**, **Copiar imagem** e **Baixar PNG** para colar/anexar manualmente no WhatsApp ou outro aplicativo. A imagem é gerada localmente em canvas, com totais e até 12 categorias por gráfico; o texto contém todos os agrupamentos, inclusive naturezas por área. Nada é enviado ao WhatsApp pela aplicação. A [cópia de PNG](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/write) depende de suporte/permissão do navegador; em caso de recusa, use o download. Se a cópia de texto não for permitida, a página oferece um campo selecionável para Ctrl+C.
+
+O servidor predefinido é a demonstração pública do Valhalla mantida pela FOSSGIS. É necessário acesso à internet/proxy; não há garantia de disponibilidade nem uso ilimitado. Consulte a [política do serviço](https://valhalla.github.io/valhalla/#demo-server) antes de distribuir para outros usuários. A aplicação envia `X-Client-Id: cad-reader`. Consultas externas contêm coordenadas e parâmetros de veículo, sem histórico, contatos ou número de ocorrência. O controle de camadas permite alternar ruas (OpenStreetMap) e satélite ([Esri World Imagery](https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer)), sem chave configurada na aplicação. Somente a camada selecionada é carregada, com atribuição visível e sem download em massa; o navegador precisa conseguir acessá-los. O motor usa a configuração de proxy HTTPS/HTTP do Java; endereços loopback explícitos não passam por esse proxy. Para servidores da rede interna, ajuste também a configuração de proxy do ambiente conforme necessário.
+
+O cadastro fica em `~/.java-cad-reader/mapa-operacional.json`, fora do repositório, independente dos perfis CAD/Discord. Não é incluído na exportação de perfis existente. Não há dados operacionais de demonstração embutidos na aplicação. Para usar o JAR pronto, não é necessário instalar Node.js, Docker ou Valhalla: apenas Java 11+, navegador e conectividade para os serviços externos escolhidos.
+
+O frontend fica em `frontend/`, com React, TypeScript, Vite, Tailwind CSS e React Leaflet. O GitHub Actions compila o frontend antes do Maven e inclui os arquivos gerados no JAR. Para desenvolvimento com recarga, primeiro abra o mapa no desktop na porta 8080 e execute `npm run dev --prefix frontend`; o proxy do Vite encaminha `/api` ao Java. Não use o servidor Vite para distribuir a aplicação. Se a porta Java mudou por conflito, ajuste o destino no `vite.config.ts`.
+
+
+### Importar e exportar unidades e perfis em CSV
+
+As abas **Unidades** e **Perfis de veículo** possuem botões próprios de **Importar CSV** e **Exportar CSV**. Cada aba mantém seu rascunho ao alternar a navegação e salva apenas sua categoria, preservando o cadastro da outra aba. A exportação contém a lista exibida, incluindo alterações ainda não salvas; use-a também para obter um modelo com os cabeçalhos corretos.
+
+A importação lê UTF-8 com ou sem BOM, separador `;` ou `,`, aspas duplas, aspas escapadas e quebras de linha dentro dos campos. Números podem usar ponto decimal ou vírgula decimal (entre aspas se o delimitador também for vírgula). Não use separadores de milhar. Arquivos de até 256 KB são aceitos. A prévia mostra erros por linha, registros válidos e campos pendentes; qualquer erro impede a aplicação do arquivo inteiro. Não há descarte silencioso das linhas inválidas.
+
+- **Combinar:** adiciona IDs novos e atualiza registros com o mesmo ID; mantém os ausentes no arquivo.
+- **Substituir:** usa apenas os registros do arquivo e informa quantos registros atuais ficarão de fora.
+- **Aplicar à lista:** altera o rascunho. Clique em **Salvar cadastro** para persistir no computador. **Cancelar importação** mantém a lista anterior.
+
+O `id` é local ao cadastro. Não o confunda com `id_unidade_cad`. Se `id` estiver vazio, um identificador será gerado; importar novamente um CSV sem IDs criará novos registros. Para transferir ou atualizar registros existentes, preserve os IDs exportados. O máximo é 200 unidades e 30 perfis.
+
+Cabeçalho de unidades:
+
+```csv
+id;nome;id_unidade_cad;endereco;latitude;longitude;fonte;consultado_em;observacoes
+```
+
+`nome` é obrigatório. Informe endereço ou o par latitude/longitude. O vínculo CAD, as coordenadas e os metadados podem ficar pendentes; não são preenchidos com zero nem deduzidos pelo nome. Latitude/longitude precisam ser preenchidas juntas. A fonte deve ser URL HTTP/HTTPS e `consultado_em` usa `AAAA-MM-DD`.
+
+Cabeçalho de perfis:
+
+```csv
+id;nome;modo;altura_m;largura_m;comprimento_m;peso_t;carga_eixo_t
+```
+
+`nome` e `modo` são obrigatórios. Modos aceitos: `auto`/`carro` e `truck`/`caminhão`. As características são opcionais e, quando presentes, devem ser positivas; medidas em metros e pesos em toneladas. Colunas técnicas antigas (`name`, `unitId`, `address`, `lat`, `lon`, `costing`, `height`, etc.) também são reconhecidas.
+
+A aba **Unidades** oferece um download do [CSV com os seis endereços pesquisados do CBMMG](frontend/public/assets/unidades-cbmmg-rmbh.csv). Fontes e limitações estão em [Pesquisa das unidades da RMBH](docs/unidades-cbmmg-rmbh.md). O arquivo não é carregado automaticamente e não substitui seu cadastro. IDs CAD e coordenadas foram deixados vazios para confirmação local. O conteúdo exportado protege campos textuais contra interpretação como fórmulas por planilhas; a importação reverte esse escape.
+
+Se aparecer `NoClassDefFoundError`/classes incompatíveis ao abrir o Valhalla, feche completamente o Java e reabra o JAR atualizado. Evite recompilar ou substituir o arquivo JAR em uso. O servidor local responde com orientação de reinício para falhas de carregamento de classes; isso não é um diagnóstico de indisponibilidade do serviço Valhalla nem exige alterar o proxy.
