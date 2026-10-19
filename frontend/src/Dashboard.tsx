@@ -1,5 +1,5 @@
 import Help from './Help'
-import ResourceSummary from './ResourceSummary'
+import ResourceSummary from './ResourceSummaryPanel'
 import BarChart from './BarChart'
 import {areaSummary} from './areaSummary'
 import type { Call, Resource } from './types'

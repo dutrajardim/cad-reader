@@ -4,7 +4,7 @@ import {normalizeSearch} from './callFilters'
 import {assignmentState} from './assignmentState'
 import {cadDate} from './format'
 import Help from './Help'
-import ResourceSummary from './ResourceSummary'
+import ResourceSummary from './ResourceSummaryPanel'
 const status=(value:string)=>({D:'Disponível',DISPONIVEL:'Disponível',E:'Empenhado',EMPENHADO:'Empenhado',I:'Indisponível',INDISPONIVEL:'Indisponível'}[value]||value||'Não informado')
 export default function ResourcesPage({state,openCall}:{state:Snapshot;openCall:(id:string)=>void}){
  const [search,setSearch]=useState(''),[unit,setUnit]=useState('all'),[limit,setLimit]=useState(50)
