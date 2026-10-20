@@ -10,9 +10,13 @@ import java.util.*;
 public final class ReaderAdministrationTest {
     static void check(boolean ok,String message){ReaderIntegrationTest.check(ok,message);}
     static final class Browser {
-        final HttpClient client=HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build();
+        final HttpClient client;
         final String url,token;
         Browser(CadWebServer web)throws Exception {
+            this(web,HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build());
+        }
+        Browser(CadWebServer web,HttpClient client)throws Exception {
+            this.client=client;
             url=web.url();token=BotJson.text(data(get("state")),"token");
         }
         HttpResponse<String> get(String path)throws Exception {
@@ -60,6 +64,20 @@ public final class ReaderAdministrationTest {
                 check(a.post("admin/logout",Java8.map()).statusCode()==200&&a.get("events").statusCode()==401,"Sair invalida apenas a sessão atual");
                 check(b.get("events").statusCode()==200,"Outra sessão permanece autenticada");
                 check(a.login("terceiro","outra-senha","").statusCode()==400,"Logout não libera perfil ativo");
+            }
+            // O mesmo navegador compartilha cookies entre portas do mesmo host.
+            Path secondRoot=root.resolve("segunda-instancia");
+            try(CadApplication first=new CadApplication(root);CadApplication second=new CadApplication(secondRoot);
+                CadWebServer firstWeb=new CadWebServer(first,root,0);CadWebServer secondWeb=new CadWebServer(second,secondRoot,0)) {
+                HttpClient shared=HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build();
+                Browser a=new Browser(firstWeb,shared),b=new Browser(secondWeb,shared);
+                HttpResponse<String> firstLogin=a.login("primeiro","senha-primeiro","");
+                HttpResponse<String> secondLogin=b.login("segundo","senha-segundo","");
+                check(firstLogin.statusCode()==200&&secondLogin.statusCode()==200,"Login nas duas portas com o mesmo navegador");
+                check(!firstLogin.headers().firstValue("Set-Cookie").get().split("=",2)[0].equals(secondLogin.headers().firstValue("Set-Cookie").get().split("=",2)[0]),"Cookies distintos por porta real, inclusive porta dinâmica");
+                check(a.get("admin/status").statusCode()==200&&b.get("admin/status").statusCode()==200,"Login na segunda porta preserva a primeira sessão");
+                check(b.post("admin/logout",Java8.map()).statusCode()==200&&b.get("admin/status").statusCode()==401,"Logout encerra sessão da segunda porta");
+                check(a.get("admin/status").statusCode()==200,"Logout em outra porta preserva a primeira sessão");
             }
             // Reinício libera escolha, mas continua validando credenciais dos perfis anteriores.
             try(CadApplication application=new CadApplication(root);CadWebServer web=new CadWebServer(application,root,0)) {

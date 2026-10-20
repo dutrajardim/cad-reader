@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 /** Interface Web; host/origem e token protegem as operações de escrita contra páginas externas. */
 final class CadWebServer implements AutoCloseable {
     private final HttpServer server;
+    private final String sessionCookieName;
     private final CadAdministration administration;
     private final CadApplication application;
     private final boolean ownsApplication;
@@ -40,6 +41,8 @@ final class CadWebServer implements AutoCloseable {
     private CadWebServer(CadOperationalState state,Path root,int port,ValhallaRouting routing,java.util.function.Supplier<CadSummary> reports,java.util.function.Consumer<String> historyRequest,CadApplication application)throws IOException{
         // Falha de bind não deve deixar executores do serviço de compatibilidade vivos.
         server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 16);
+        // Cookies são compartilhados entre portas do mesmo host.
+        sessionCookieName = "CAD_ADMIN_" + server.getAddress().getPort();
         this.ownsApplication=application==null;
         this.application=application==null?new CadApplication(root,state):application;
         this.administration=new CadAdministration(this.application,root);
@@ -120,12 +123,12 @@ final class CadWebServer implements AutoCloseable {
                 Map<String, Object> body = BotJson.object(BotJson.parse(new String(bytes, StandardCharsets.UTF_8)));
                 if(path.equals("/api/admin/login")) {
                     String value=administration.login(body);
-                    exchange.getResponseHeaders().add("Set-Cookie","CAD_ADMIN="+value+"; Path=/api; HttpOnly; SameSite=Strict; Max-Age=43200");
+                    exchange.getResponseHeaders().add("Set-Cookie",sessionCookieName+"="+value+"; Path=/api; HttpOnly; SameSite=Strict; Max-Age=43200");
                     json(exchange,200,administration.session(value));return;
                 }
                 if(path.equals("/api/admin/logout")) {
                     administration.logout(session);
-                    exchange.getResponseHeaders().add("Set-Cookie","CAD_ADMIN=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0");
+                    exchange.getResponseHeaders().add("Set-Cookie",sessionCookieName+"=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0");
                     json(exchange,200,administration.session(""));return;
                 }
                 if(path.equals("/api/admin/config")) {json(exchange,200,administration.configure(body));return;}
@@ -218,11 +221,11 @@ final class CadWebServer implements AutoCloseable {
         exchange.sendResponseHeaders(status, data.length);
         exchange.getResponseBody().write(data);
     }
-    private static String cookie(HttpExchange exchange) {
+    private String cookie(HttpExchange exchange) {
         String header=exchange.getRequestHeaders().getFirst("Cookie");
         if(header!=null)for(String item:header.split(";")) {
             String[] pair=item.trim().split("=",2);
-            if(pair.length==2&&pair[0].equals("CAD_ADMIN")) {
+            if(pair.length==2&&pair[0].equals(sessionCookieName)) {
                 String value=pair[1];
                 return value.length()>1&&value.startsWith("\"")&&value.endsWith("\"")?value.substring(1,value.length()-1):value;
             }
