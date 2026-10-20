@@ -21,7 +21,10 @@ O workflow `.github/workflows/build.yml` valida Linux/Windows, disponibiliza o J
 | `CadInputBuffer` | Leitura em blocos com no máximo um refill, sem bloqueio por available() do zlib |
 | `CadXml` | Parser StAX/DOM seguro, namespaces, leitura de filhos diretos e coleções |
 | `CadListener` | Callbacks de log, catálogo de filtros e mensagens CAD |
-| `CadReaderWindow` | Interface Swing, sessão, perfis, histórico CSV e prévia |
+| `CadReaderWindow` | Apresentação Swing e operações de arquivo da interface legada |
+| `CadApplication` | Serviço sem Swing: conexão CAD, filtros, monitoramento, histórico e ciclo de vida Discord |
+| `CadAdministration` | Perfil ativo por execução, credenciais, sessões, importação e revisão de configuração |
+| `CadWebServer` | HTTP compartilhado pelo acompanhamento e por `/admin`, autorização das APIs e arquivos do frontend |
 | `FilterSelector` | Combo editável com busca local por nome/ID no mesmo campo, opções Nome (ID), restauração por ID e seleção restrita ao catálogo |
 | `CadMonitor` | Associação chamada/recurso/empenho, aplicação do filtro, comparação de estados e formatação |
 | `CadResourceFilter` | Critérios de unidade e tipo do filtro selecionado, conforme FiltroRecurso.avaliar |
@@ -31,7 +34,7 @@ O workflow `.github/workflows/build.yml` valida Linux/Windows, disponibiliza o J
 
 ## Fluxo CAD
 
-Na interface, a caixa de diagnóstico TLS começa selecionada por decisão de configuração da instalação: `connect()` converte a seleção em `insecure=true`. O modo terminal mantém validação por padrão. A opção não é persistida no perfil.
+Na interface, a caixa de diagnóstico TLS começa selecionada por decisão de configuração da instalação: `connect()` converte a seleção em `insecure=true`. O modo terminal mantém validação por padrão. Na administração Web, a opção é persistida no perfil.
 
 1. Abre TCP e stream XMPP para o domínio configurado, com remetente técnico `ie@domínio`, como `NettyXMPPConstants.DEFAULT_INITIATING_ENTITY_JID` do cliente original. `ReaderOptions` converte o usuário para maiúsculas (equivalente ao `upperCaseOnly` de `TelaAcessoView`); não transforma a senha. O usuário SASL é independente desse remetente técnico.
 2. Negocia STARTTLS, autenticação SASL PLAIN, compressão zlib quando oferecida e bind. O servidor pode oferecer compressão antes da autenticação. Cada mudança reinicia a stream XML; o parser evita antecipar bytes através dessas fronteiras. A leitura fica limitada a um byte durante a negociação; após o bind, passa a usar blocos.
@@ -191,3 +194,17 @@ Operações longas usam um executor serial, separado dos dois workers que respon
 `Configurar bot` usa campos temporários e só aplica os valores ao confirmar, mesmo sem sessão CAD. `Iniciar bot` é uma ação separada, habilitada após receber o catálogo. `Parar bot` conserva a referência até terminar o fechamento em background, bloqueando início/configuração concorrentes. `refreshBotControls` roda no EDT e consulta `hasFilters()` sem copiar o catálogo a cada atualização. O indicador Bot mostra o estado exposto por `DiscordBotGateway` (conexão, retomada, recusa ou parada), além dos estados locais de início/encerramento. O botão Ajuda apresenta instruções de instalação e comandos. O perfil persiste IDs e token cifrado; cancelar o diálogo não altera dados e abrir um perfil não inicia o bot.
 
 A distribuição usa bytecode Java 8 (`--release 8`), incluindo bibliotecas no JAR. Os testes podem compilar em JDK 8 ou mais recente; o CI compila a aplicação em JDK 11 e testa execução em Java 8 e Java 11 no Windows/Linux.
+
+## Administração Web
+
+O modo `--web [porta]` inicia `CadApplication` e `CadWebServer` sem Swing. O início padrão continua abrindo a janela Java, que usa o mesmo serviço e disponibiliza o HTTP na porta 8080. Remover a janela ou mudar o modo padrão ficam para outra etapa.
+
+`/api/admin/session` informa o estado da sessão; `/api/admin/login` ativa ou recupera um perfil e emite um cookie HttpOnly/SameSite=Strict. As rotas `/api/admin/*` restantes, eventos, comunicação, gravação de cadastros e controle do roteamento exigem esse cookie. O token público de proteção de POST não concede acesso administrativo. Logout revoga o cookie no servidor; reinício invalida todas as sessões e libera escolha de outro perfil. A configuração ativa usa revisão para impedir sobrescrita por abas antigas. A leitura do estado para o mapa nunca inclui credenciais.
+
+Importação recebe conteúdo Base64 limitado a 128 KiB, decifra em arquivo temporário e cria somente um nome novo. A senha do novo perfil é usada em `ProfileStore.load`; nenhum marcador criptográfico foi acrescentado ao formato legado. Credenciais administrativas persistem separadamente com PBKDF2-HMAC-SHA256, sal aleatório e 210.000 iterações. Perfis legados protegidos são abertos com a senha de proteção existente; perfis sem segredos adotam a senha escolhida no primeiro acesso Web.
+
+`ReaderAdministrationTest` cobre autorização HTTP, sessões simultâneas, conflitos, recuperação após reinício e importação com e sem dados cifrados. A suíte `tests/run_tests.py` executa esses testes sem ambiente gráfico. Os testes visuais continuam opcionais com Xvfb.
+
+### Regressão das etiquetas no mapa
+
+Após compilar o frontend, execute `node frontend/tests/marker-browser.mjs` com Node 22+ e Chrome disponível (ou informe o executável em `CAD_CHROME`). O teste usa um servidor HTTP local com dados fictícios, sem conexão CAD/Discord. Verifica a transição Em controle → No local e os demais estados (despachada, a caminho, em deslocamento, em direção, local intermediário, em retorno, em encerramento e suspensa), o alias NO_LOCAL e um estado desconhecido. Confere a remoção da camada/etiqueta anterior, a ausência de marcadores duplicados, o encerramento do vínculo e a preservação do marcador nos polls sem alteração. A chave da camada Leaflet acompanha a representação visual, enquanto o componente da ocorrência continua identificado pelo ID CAD.

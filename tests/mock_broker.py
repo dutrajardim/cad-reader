@@ -21,7 +21,7 @@ BROKER_TIME = 1700000000000
 TEST_PASSWORD = "fake-ç&\'\"🚒"
 
 
-def scenario(compressed=False, filters=True, refused=False, silent=False, tls_context=None, prereq_refused=False, minimum_revision=None, dynamic_classpath=None):
+def scenario(compressed=False, filters=True, refused=False, silent=False, tls_context=None, prereq_refused=False, minimum_revision=None, dynamic_classpath=None, service_classpath=None):
     listener = socket.socket()
     listener.bind(('127.0.0.1', 0))
     port = listener.getsockname()[1]
@@ -92,7 +92,8 @@ def scenario(compressed=False, filters=True, refused=False, silent=False, tls_co
                 # Consume the entire root tag, independent of attribute ordering.
                 expect('<stream:stream')
                 header = expect('>')
-                assert "from='ie@cad.sids.mg.gov.br'" in header, 'Remetente inicial diferente do cliente CAD original'
+                expected_domain = '127.0.0.1' if service_classpath else 'cad.sids.mg.gov.br'
+                assert f"from='ie@{expected_domain}'" in header, 'Remetente inicial diferente do domínio configurado'
 
             open_stream()
             if tls_context:
@@ -112,7 +113,7 @@ def scenario(compressed=False, filters=True, refused=False, silent=False, tls_co
                  ("<compression xmlns='http://jabber.org/features/compress'><method>zlib</method></compression>" if compressed and not encoder else '') + "</s:features>")
             auth = expect('</auth>')  # SASL takes priority when both features are offered.
             encoded = re.search(r'<auth[^>]*>([^<]+)</auth>', auth).group(1)
-            assert base64.b64decode(encoded).decode('utf-8') == '\0TEST\0' + TEST_PASSWORD, 'Payload SASL diferente do informado' 
+            assert base64.b64decode(encoded).decode('utf-8') == '\0TEST\0' + TEST_PASSWORD, 'Payload SASL diferente do informado'
             send("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>", True)
             open_stream()
             if compressed and not encoder:
@@ -137,7 +138,7 @@ def scenario(compressed=False, filters=True, refused=False, silent=False, tls_co
                      6 if prereq_refused else 0)
             if prereq_refused:
                 return
-            if not filters or dynamic_classpath:
+            if not filters or dynamic_classpath or service_classpath:
                 cache_id = expect_cad('envRecuperarCacheAposValidarPreRequisitos')
                 if silent:
                     # Traffic continues, but no CAD response: watchdog must still expire.
@@ -203,12 +204,12 @@ def scenario(compressed=False, filters=True, refused=False, silent=False, tls_co
 
     server = threading.Thread(target=serve, daemon=True)
     server.start()
-    args = ['java', '-cp', str(ROOT / 'target/java-cad-reader-1.0.0.jar') + (':' + dynamic_classpath if dynamic_classpath else ''),
-            'br.gov.mg.sids.reader.ReaderSessionTest' if dynamic_classpath else 'br.gov.mg.sids.reader.CadXmppReader', '--host', '127.0.0.1', '--port', str(port),
+    args = ['java', '-cp', str(ROOT / 'target/java-cad-reader-1.0.0.jar') + (':' + (dynamic_classpath or service_classpath) if dynamic_classpath or service_classpath else ''),
+            'br.gov.mg.sids.reader.ReaderApplicationSessionTest' if service_classpath else 'br.gov.mg.sids.reader.ReaderSessionTest' if dynamic_classpath else 'br.gov.mg.sids.reader.CadXmppReader', '--host', '127.0.0.1', '--port', str(port),
             '--user', 'test', '--password', TEST_PASSWORD, '--request-timeout', '2' if silent else '10']
     if minimum_revision:
         args += ['--broker-minimum-revision', minimum_revision]
-    if filters and not dynamic_classpath:
+    if filters and not dynamic_classpath and not service_classpath:
         args += ['--chamada-filter-id', '12', '--recurso-filter-id', '34']
     if tls_context:
         args += ['--insecure']
@@ -237,13 +238,14 @@ def scenario(compressed=False, filters=True, refused=False, silent=False, tls_co
             assert '--chamada-filter-id 12 | 2BBM' in result.stdout, result.stdout
             assert '--recurso-filter-id 34 | 2BBM' in result.stdout, result.stdout
             assert '[FILTROS] filtroChamada: 1' in result.stdout and '[FILTROS] filtroRecurso: 1' in result.stdout, result.stdout
-    print(f'PASS zlib={compressed} filtros={filters} recusa={refused} timeout={silent} TLS={bool(tls_context)} prereq_recusa={prereq_refused} filtros_na_sessao={bool(dynamic_classpath)}')
+    print(f'PASS zlib={compressed} filtros={filters} recusa={refused} timeout={silent} TLS={bool(tls_context)} prereq_recusa={prereq_refused} filtros_na_sessao={bool(dynamic_classpath)} servico_sem_swing={bool(service_classpath)}')
 
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as classes:
-        subprocess.run(['javac', '-encoding', 'UTF-8', '-cp', str(ROOT / 'target/java-cad-reader-1.0.0.jar'), '-d', classes, str(ROOT / 'tests/ReaderSessionTest.java')], check=True)
+        subprocess.run(['javac', '-encoding', 'UTF-8', '-cp', str(ROOT / 'target/java-cad-reader-1.0.0.jar'), '-d', classes, str(ROOT / 'tests/ReaderSessionTest.java'), str(ROOT / 'tests/ReaderApplicationSessionTest.java')], check=True)
         scenario(dynamic_classpath=classes)
+        scenario(service_classpath=classes)
     scenario()
     scenario(compressed=True, minimum_revision="200")
     scenario(compressed=True, refused=True)

@@ -82,3 +82,31 @@
 .filters-dialog-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;padding:14px 18px;background:white;border-top:1px solid #dbe3ec;flex:none}
 .filters-dialog-actions>span{margin-right:auto;font-size:12px;color:#63768b}
 @media(max-width:600px){.filters-dialog-body{grid-template-columns:1fr;padding:12px;gap:12px}.filter-choices:last-child{grid-column:auto}}
+
+/* Administração compartilha a identidade do acompanhamento. */
+.admin-login{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg)}
+.admin-login form{width:min(100%,500px);display:grid;gap:18px}
+.admin-login .brand-image{width:64px;height:64px}
+.admin-config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:18px 0}
+.admin-config-grid input,.admin-config-grid select,.admin-login input{width:100%;min-width:0}
+.admin-check{display:flex;align-items:center;gap:10px}
+.admin-check input{width:auto}
+.admin-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.admin-page>.card{margin-bottom:20px}
+@media(max-width:720px){.admin-config-grid{grid-template-columns:1fr}.admin-actions>*{flex:1 1 180px}}
+
+.base-map-icon{background:transparent;border:0}
+.station-marker{display:block;width:40px;height:40px;filter:drop-shadow(0 2px 3px #0005)}
+.station-marker svg{display:block;width:100%;height:100%}
+.station-label{position:absolute;top:42px;left:50%;transform:translateX(-50%);display:block;width:max-content;max-width:160px;white-space:normal;text-align:center;font:600 10px/1.2 system-ui,sans-serif;color:#475569;background:#ffffffe8;border:1px solid #cbd5e1;border-radius:3px;padding:2px 4px;box-shadow:0 1px 2px #0001}
+@media(max-width:720px){.station-label{max-width:160px}}
+
+.snackbar{position:fixed;right:max(20px,env(safe-area-inset-right));bottom:max(20px,env(safe-area-inset-bottom));z-index:10000;display:flex;align-items:center;gap:12px;width:max-content;max-width:min(520px,calc(100vw - 40px));padding:12px 12px 12px 16px;border:1px solid #33495f;border-radius:9px;background:#172b40;color:#fff;box-shadow:0 5px 22px #0003;font-size:13px;line-height:1.5;animation:snackbar-in .18s ease-out}
+.snackbar-check{color:#7dd3af;font-size:18px;flex:none}
+.snackbar-message{overflow-wrap:anywhere;white-space:pre-line;min-width:0;max-height:40dvh;overflow:auto}
+.snackbar button{display:grid;place-items:center;flex:none;min-width:36px;min-height:36px;border:0;border-radius:5px;background:transparent;color:#dbe7f0;font-size:24px;line-height:1;cursor:pointer}
+.snackbar button:hover,.snackbar button:focus-visible{background:#ffffff18;color:white}
+@keyframes snackbar-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.snackbar{animation:none}}
+
+.snackbar-error{border-color:#b95a59;background:#572627}.snackbar-error .snackbar-check{color:#ffc4bf;font-weight:800}

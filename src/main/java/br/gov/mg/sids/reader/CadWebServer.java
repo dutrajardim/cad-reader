@@ -11,6 +11,9 @@ import java.util.concurrent.*;
 /** Interface Web; host/origem e token protegem as operações de escrita contra páginas externas. */
 final class CadWebServer implements AutoCloseable {
     private final HttpServer server;
+    private final CadAdministration administration;
+    private final CadApplication application;
+    private final boolean ownsApplication;
     private final ExecutorService workers = Executors.newFixedThreadPool(4);
     private final String token = UUID.randomUUID().toString();
     private final CadOperationalState state;
@@ -19,6 +22,9 @@ final class CadWebServer implements AutoCloseable {
     private final java.util.function.Supplier<CadSummary> reports;
     private final java.util.function.Consumer<String> historyRequest;
     private final Semaphore reportGate=new Semaphore(1);
+    CadWebServer(CadApplication application, Path root, int port) throws IOException {
+        this(application.operational,root,port,new ValhallaRouting(),application::summary,application::requestHistory,application);
+    }
     CadWebServer(CadOperationalState state, Path root, int port) throws IOException {
         this(state, root, port, new ValhallaRouting());
     }
@@ -29,9 +35,16 @@ final class CadWebServer implements AutoCloseable {
         this(state,root,port,routing,reports,null);
     }
     CadWebServer(CadOperationalState state,Path root,int port,ValhallaRouting routing,java.util.function.Supplier<CadSummary> reports,java.util.function.Consumer<String> historyRequest)throws IOException{
+        this(state,root,port,routing,reports,historyRequest,null);
+    }
+    private CadWebServer(CadOperationalState state,Path root,int port,ValhallaRouting routing,java.util.function.Supplier<CadSummary> reports,java.util.function.Consumer<String> historyRequest,CadApplication application)throws IOException{
+        // Falha de bind não deve deixar executores do serviço de compatibilidade vivos.
+        server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 16);
+        this.ownsApplication=application==null;
+        this.application=application==null?new CadApplication(root,state):application;
+        this.administration=new CadAdministration(this.application,root);
         this.historyRequest=historyRequest;
         this.state = state; this.settings = new OperationalSettings(root); this.routing = routing;this.reports=reports;
-        server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 16);
         server.setExecutor(workers); server.createContext("/", this::handle); server.start();
     }
     String url() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
@@ -51,6 +64,25 @@ final class CadWebServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Cache-Control", "no-store");
             String path = exchange.getRequestURI().getPath(), method = exchange.getRequestMethod();
             if (path.startsWith("/api/")) {
+                String session=cookie(exchange);
+                boolean privateEndpoint=path.startsWith("/api/admin/")&&!path.equals("/api/admin/login")&&!path.equals("/api/admin/session")
+                    || path.equals("/api/events") || path.equals("/api/communication") || path.equals("/api/settings") || path.startsWith("/api/routing/");
+                if(privateEndpoint&&!administration.authenticated(session)) {
+                    json(exchange,401,Java8.map("error","Entre na administração com o nome e a senha do perfil ativo."));return;
+                }
+                if(method.equals("GET")&&path.equals("/api/admin/session")) {json(exchange,200,administration.session(session));return;}
+                if(method.equals("GET")&&path.equals("/api/admin/map-settings")) {json(exchange,200,settings.get());return;}
+                if(method.equals("GET")&&path.equals("/api/admin/status")) {json(exchange,200,administration.status());return;}
+                if(method.equals("GET")&&path.equals("/api/admin/export")) {json(exchange,200,Java8.map("file",administration.export()));return;}
+                if(method.equals("GET")&&path.equals("/api/admin/history")) {
+                    Path journal=application.root.resolve("historico.csv");
+                    if(!java.nio.file.Files.isRegularFile(journal))throw new IllegalArgumentException("Histórico ainda não existe.");
+                    exchange.getResponseHeaders().set("Content-Disposition","attachment; filename=historico-cad.csv");
+                    exchange.getResponseHeaders().set("Content-Type","text/csv; charset=UTF-8");
+                    exchange.sendResponseHeaders(200,0);
+                    try(InputStream input=java.nio.file.Files.newInputStream(journal)){input.transferTo(exchange.getResponseBody());}
+                    return;
+                }
                 if (method.equals("GET") && path.equals("/api/events")) {
                     long after=0; String query=exchange.getRequestURI().getRawQuery();
                     if(query!=null && query.startsWith("after=")) try{after=Long.parseLong(query.substring(6));}catch(NumberFormatException error){throw new IllegalArgumentException("Cursor de eventos inválido.");}
@@ -86,6 +118,21 @@ final class CadWebServer implements AutoCloseable {
                 byte[] bytes = exchange.getRequestBody().readNBytes(262145);
                 if (bytes.length > 262144) { json(exchange, 413, Java8.map("error", "Cadastro muito grande.")); return; }
                 Map<String, Object> body = BotJson.object(BotJson.parse(new String(bytes, StandardCharsets.UTF_8)));
+                if(path.equals("/api/admin/login")) {
+                    String value=administration.login(body);
+                    exchange.getResponseHeaders().add("Set-Cookie","CAD_ADMIN="+value+"; Path=/api; HttpOnly; SameSite=Strict; Max-Age=43200");
+                    json(exchange,200,administration.session(value));return;
+                }
+                if(path.equals("/api/admin/logout")) {
+                    administration.logout(session);
+                    exchange.getResponseHeaders().add("Set-Cookie","CAD_ADMIN=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0");
+                    json(exchange,200,administration.session(""));return;
+                }
+                if(path.equals("/api/admin/config")) {json(exchange,200,administration.configure(body));return;}
+                if(path.startsWith("/api/admin/")) {
+                    administration.action(path.substring("/api/admin/".length()),body);
+                    json(exchange,200,administration.status());return;
+                }
                 switch (path) {
                 case "/api/call/history":
                     String historyId=BotJson.text(body,"callId");
@@ -128,7 +175,7 @@ final class CadWebServer implements AutoCloseable {
                 }
             }
             if (!method.equals("GET")) { json(exchange, 405, Java8.map("error", "Método não permitido.")); return; }
-            String asset = path.equals("/") ? "/index.html" : path;
+            String asset = path.equals("/") || path.equals("/mapa") || path.equals("/admin") || path.equals("/admin/") ? "/index.html" : path;
             if (asset.contains("..") || !(asset.equals("/index.html") || asset.startsWith("/assets/"))) {
                 json(exchange, 404, Java8.map("error", "Arquivo não encontrado.")); return;
             }
@@ -138,7 +185,8 @@ final class CadWebServer implements AutoCloseable {
                     : asset.endsWith(".css") ? "text/css; charset=UTF-8" : asset.endsWith(".csv") ? "text/csv; charset=UTF-8" : asset.endsWith(".png") ? "image/png" : "application/octet-stream";
                 send(exchange, 200, type, input.readAllBytes());
             }
-        } catch (IllegalArgumentException e) { json(exchange, 400, Java8.map("error", e.getMessage())); }
+        } catch (CadAdministration.Conflict e) { json(exchange,409,Java8.map("error",e.getMessage())); }
+        catch (IllegalArgumentException e) { json(exchange, 400, Java8.map("error", e.getMessage())); }
         catch (LinkageError e) {
             json(exchange,503,Java8.map("error","As classes da aplicação estão indisponíveis ou incompatíveis. Feche completamente o CAD-Reader e reabra o JAR atualizado. Se persistir, confira se está usando o JAR completo e correto."));
         }
@@ -170,5 +218,16 @@ final class CadWebServer implements AutoCloseable {
         exchange.sendResponseHeaders(status, data.length);
         exchange.getResponseBody().write(data);
     }
-    public void close() { server.stop(0); workers.shutdownNow(); routing.disconnect(); }
+    private static String cookie(HttpExchange exchange) {
+        String header=exchange.getRequestHeaders().getFirst("Cookie");
+        if(header!=null)for(String item:header.split(";")) {
+            String[] pair=item.trim().split("=",2);
+            if(pair.length==2&&pair[0].equals("CAD_ADMIN")) {
+                String value=pair[1];
+                return value.length()>1&&value.startsWith("\"")&&value.endsWith("\"")?value.substring(1,value.length()-1):value;
+            }
+        }
+        return "";
+    }
+    public void close() { server.stop(0); workers.shutdownNow(); routing.disconnect(); administration.close(); if(ownsApplication)application.close(); }
 }

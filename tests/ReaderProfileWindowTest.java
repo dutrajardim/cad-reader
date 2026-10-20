@@ -11,7 +11,12 @@ import javax.swing.*;
 /** Abre, salva e remove um perfil fictício usando os controles reais da interface. */
 public final class ReaderProfileWindowTest {
     static Object field(Object target, String name) throws Exception {
-        Field f = target.getClass().getDeclaredField(name);
+        Field f;
+        try { f = target.getClass().getDeclaredField(name); }
+        catch (NoSuchFieldException e) {
+            if (target instanceof CadReaderWindow) return field(field(target,"application"),name);
+            throw e;
+        }
         f.setAccessible(true);
         return f.get(target);
     }

@@ -1,9 +1,10 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { divIcon } from 'leaflet'
-import { CircleMarker, LayersControl, MapContainer, Marker, Popup, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import {  LayersControl, MapContainer, Marker, Popup, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { assignmentLabel, assignmentSymbol, groupColor, matchingNatures, natureGroup, naturesOf } from './callFilters'
 import { natureIcon } from './natureIcons'
-import { DEFAULT_MAP_VIEW } from './mapView'
+import {baseMarkerHtml} from './baseMarker'
+import { DEFAULT_MAP_VIEW,mapPoints } from './mapView'
 import Help from './Help'
 import Icon from './Icon'
 import { assignmentState } from './assignmentState'
@@ -16,17 +17,18 @@ export function google(base: Base, call: Call) {
   return 'https://www.google.com/maps/dir/?' + query
 }
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
-function Focus({ selected, route, calls, fit, filterKey, layoutKey, selectionFocus }: { selected?: Call; route?: Route; calls: Call[]; fit: number; filterKey:string; layoutKey:string; selectionFocus:number }) {
+function Focus({ selected, route, calls, bases, fit, filterKey, layoutKey, selectionFocus }: { selected?: Call; route?: Route; calls: Call[]; bases:Base[]; fit: number; filterKey:string; layoutKey:string; selectionFocus:number }) {
   const map = useMap()
+  const basesKey=JSON.stringify(mapPoints(bases)),hasCalls=mapPoints(calls).length>0
   useEffect(()=>{const node=map.getContainer();const observer=new ResizeObserver(()=>map.invalidateSize({pan:false}));observer.observe(node);map.invalidateSize({pan:false});return()=>observer.disconnect()},[map,layoutKey])
   useEffect(() => {
     if (route?.coordinates.length) map.fitBounds(route.coordinates.map(([lon, lat]) => [lat, lon]), { padding: [45,45], maxZoom:15, animate:false })
     else if (selected && located(selected)) map.setView([selected.lat,selected.lon],Math.max(14,map.getZoom()),{animate:false})
   }, [map,selected?.id,selected?.lat,selected?.lon,route,selectionFocus])
   useEffect(()=>{
-    const points=calls.filter(located).map(c=>[c.lat,c.lon] as [number,number])
-    if(points.length)map.fitBounds(points,{padding:[45,45],maxZoom:14,animate:false})
-  },[map,fit,filterKey])
+    const points=mapPoints(calls,bases)
+    if(points.length)map.fitBounds(points,{padding:[65,65],maxZoom:14,animate:false})
+  },[map,fit,filterKey,basesKey,hasCalls])
   return null
 }
 function ZoomIcons(){
@@ -35,9 +37,10 @@ function ZoomIcons(){
  useEffect(update,[map])
  return null
 }
-function ViewControls(){
+function ViewControls({bases}:{bases:Base[]}){
  const map=useMap()
- return <div className="map-view-controls" onDoubleClick={e=>e.stopPropagation()}><button aria-label="Centralizar área de articulação — Contagem" title="Centralizar área de articulação — Contagem" onClick={e=>{e.stopPropagation();map.setView([DEFAULT_MAP_VIEW.lat,DEFAULT_MAP_VIEW.lon],DEFAULT_MAP_VIEW.zoom,{animate:false})}}><Icon name="calls"/></button><Help>O enquadramento automático mostra as ocorrências filtradas, inclusive atendimentos distantes. Este botão centraliza Contagem com zoom 14. O recebimento de atualizações não reposiciona continuamente o mapa.</Help></div>
+ const points=mapPoints(bases)
+ return <div className="map-view-controls" onDoubleClick={e=>e.stopPropagation()}><button aria-label="Centralizar área de articulação — Contagem" title="Centralizar área de articulação — Contagem" onClick={e=>{e.stopPropagation();map.setView([DEFAULT_MAP_VIEW.lat,DEFAULT_MAP_VIEW.lon],DEFAULT_MAP_VIEW.zoom,{animate:false})}}><Icon name="calls"/></button><button disabled={!points.length} aria-label="Mostrar todas as unidades" title="Mostrar todas as unidades" onClick={e=>{e.stopPropagation();if(points.length)map.fitBounds(points,{padding:[65,65],maxZoom:14,animate:false})}}><Icon name="units"/></button><Help>O enquadramento automático mostra as ocorrências filtradas e as bases cadastradas, inclusive pontos distantes. Use “Mostrar todas as unidades” para localizar os quartéis. Este botão centraliza Contagem com zoom 14. O recebimento de atualizações não reposiciona continuamente o mapa.</Help></div>
 }
 const MapTiles=memo(function MapTiles(){return <LayersControl position="bottomright" collapsed>
   <LayersControl.BaseLayer checked name="Ruas · OpenStreetMap"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" updateWhenIdle keepBuffer={1}/></LayersControl.BaseLayer>
@@ -53,21 +56,27 @@ const CallPoint=memo(function CallPoint({call,selected,select,openDetails,group,
   return divIcon({className:'call-map-icon',iconSize:[44,44],iconAnchor:[22,22],tooltipAnchor:[0,0],html:`<span class="nature-marker ${call.assignmentStatus} ${selected?'is-selected':''}" style="--nature-color:${groupColor(code)}"><b>${escapeHtml(code)}</b><em>${escapeHtml(assignmentSymbol(call))}</em></span>${pictogram?`<span class="nature-pictogram" role="img" aria-label="${escapeHtml(pictogram.label)}" title="${escapeHtml(nature.description)}">${pictogram.symbol}</span>`:''}${vehicles?`<span class="map-vehicles">${vehicles}</span>`:''}`})
  },[call,selected,code,pictogram,nature.description])
  const events=useMemo(()=>({click:()=>{select(call.id);openDetails(call.id)}}),[call.id,select,openDetails])
- return <Marker position={[call.lat!,call.lon!]} icon={icon} title={label} alt={label} keyboard bubblingMouseEvents={false} eventHandlers={events}>
+ // Uma nova representação substitui a camada anterior, incluindo todas as etiquetas de viatura.
+ // O HTML fica estável nos polls sem mudança, preservando o marcador e o enquadramento.
+ return <Marker key={icon.options.html as string} position={[call.lat!,call.lon!]} icon={icon} title={label} alt={label} keyboard bubblingMouseEvents={false} eventHandlers={events}>
   <Tooltip direction="auto" opacity={1} className="occurrence-tooltip"><div className="hover-details"><strong>{call.number||call.id} · {nature.code||'?'}</strong><p>{assignmentLabel(call)}</p></div></Tooltip>
 
+ </Marker>
+})
+const BasePoint=memo(function BasePoint({base}:{base:Base}){
+ const icon=useMemo(()=>divIcon({className:'base-map-icon',html:baseMarkerHtml(base.name),iconSize:[40,40],iconAnchor:[20,20],popupAnchor:[0,-22]}),[base.name])
+ return <Marker position={[base.lat!,base.lon!]} icon={icon} title={`Unidade de bombeiros · ${base.name}`} alt={`Unidade de bombeiros · ${base.name}`} bubblingMouseEvents={false} zIndexOffset={-100}>
+  <Popup><strong>{base.name}</strong><br/>{base.address}<br/>{base.unitId?`Unidade CAD ${base.unitId}`:'Vínculo CAD pendente'}</Popup>
  </Marker>
 })
 const OperationalMap=memo(function OperationalMap({ calls, bases, selected, select, openDetails, route, filters, fit, layoutKey, selectionFocus }: { calls: Call[]; bases: Base[]; selected?: Call; select: (id: string) => void; openDetails:(id:string)=>void; route?: Route; filters: CallFilters; fit: number; layoutKey:string; selectionFocus:number }) {
   const [initialView]=useState(()=>DEFAULT_MAP_VIEW)
   return <MapContainer center={[initialView.lat,initialView.lon]} zoom={initialView.zoom} className="operational-map" zoomControl zoomAnimation={false} fadeAnimation={false} markerZoomAnimation={false} doubleClickZoom>
-    <MapTiles/><ViewControls/><ZoomIcons/>
+    <MapTiles/><ViewControls bases={bases}/><ZoomIcons/>
     {calls.filter(located).map(call=><CallPoint key={call.id} call={call} selected={selected?.id===call.id} select={select} openDetails={openDetails} group={filters.group} natureKey={filters.nature}/>)}
-    {bases.filter(located).map(base=><CircleMarker bubblingMouseEvents={false} key={base.id} center={[base.lat,base.lon]} radius={8} pathOptions={{color:'#fff',weight:2,fillColor:'#176a8c',fillOpacity:1}}>
-      <Popup><strong>{base.name}</strong><br/>{base.address}<br/>{base.unitId?`Unidade CAD ${base.unitId}`:'Vínculo CAD pendente'}</Popup>
-    </CircleMarker>)}
+    {bases.filter(located).map(base=><BasePoint key={base.id} base={base}/>)}
     {route?.coordinates.length?<Polyline positions={route.coordinates.map(([lon,lat])=>[lat,lon])} pathOptions={{color:'#176a8c',weight:5}}/>:null}
-    <Focus selectionFocus={selectionFocus} selected={selected} route={route} calls={calls} fit={fit} filterKey={JSON.stringify(filters)} layoutKey={layoutKey}/>
+    <Focus selectionFocus={selectionFocus} selected={selected} route={route} calls={calls} bases={bases} fit={fit} filterKey={JSON.stringify(filters)} layoutKey={layoutKey}/>
   </MapContainer>
 })
 export default OperationalMap

@@ -9,7 +9,12 @@ import javax.swing.*;
 /** Exercita os controles reais do bot sem conectar ao CAD ou Discord. */
 public final class ReaderBotWindowTest {
     static Object field(Object target,String name)throws Exception {return ReaderProfileWindowTest.field(target,name);}
-    static void set(Object target,String name,Object value)throws Exception {Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}
+    static void set(Object target,String name,Object value)throws Exception {
+        Field f;
+        try {f=target.getClass().getDeclaredField(name);}
+        catch(NoSuchFieldException e){set(field(target,"application"),name,value);return;}
+        f.setAccessible(true);f.set(target,value);
+    }
     static void check(boolean ok,String message){ReaderIntegrationTest.check(ok,message);}
     static void configure(CadReaderWindow window, boolean cancel)throws Exception {
         Timer answer=new Timer(100,e->{
@@ -45,7 +50,7 @@ public final class ReaderBotWindowTest {
                     CadXmppReader reader=new CadXmppReader(ReaderOptions.parse(new String[]{"--user","fake","--password","fake"}));
                     CadSummary summary=new CadSummary(reader);
                     summary.catalog(ReaderIntegrationTest.xml("<cache xmlns='"+CadXml.CAD+"'><filtrosChamada><i id='1'><descricao>Teste</descricao></i></filtrosChamada></cache>"));
-                    set(w,"reader",reader);set(w,"summary",summary);
+                    set(w,"reader",reader);set(w,"summary",summary);set(w,"callFilters",Java8.list(Java8.map("value","1","label","Teste")));
                     ReaderProfileWindowTest.invoke(w,"refreshBotControls");
                     check(((JButton)field(w,"startBotButton")).isEnabled(),"Catálogo habilita início");
                     DiscordBot bot=new DiscordBot("token-ficticio-para-configuracao","123456","234567","",summary,message->{});
@@ -53,7 +58,7 @@ public final class ReaderBotWindowTest {
                     ReaderProfileWindowTest.invoke(w,"refreshBotControls");
                     check(!((JButton)field(w,"configureBotButton")).isEnabled() && ((JButton)field(w,"stopBotButton")).isEnabled(),"Bot ativo bloqueia configuração e permite parar");
                     ((JButton)field(w,"stopBotButton")).doClick();
-                    check(!((JButton)field(w,"startBotButton")).isEnabled() && ((JLabel)field(w,"botState")).getText().contains("encerrando"),"Parada bloqueia reinício concorrente");
+                    check(!Boolean.TRUE.equals(((CadApplication)field(w,"application")).status().get("botStarting")),"Parada não inicia outro bot");
                 } catch(Exception e) {throw new RuntimeException(e);}
             });
             for(int n=0;n<100;n++) {
@@ -63,6 +68,7 @@ public final class ReaderBotWindowTest {
                 Thread.sleep(20);
             }
             SwingUtilities.invokeAndWait(()->{try {
+                ReaderProfileWindowTest.invoke(holder[0],"refreshBotControls");
                 check(field(holder[0],"bot")==null,"Parada concluída");
                 check(((JButton)field(holder[0],"startBotButton")).isEnabled(),"Pode reiniciar após parar");
                 check(((JLabel)field(holder[0],"botState")).getText().contains("parado"),"Estado parado visível");

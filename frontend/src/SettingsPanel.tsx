@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Base, Settings, Snapshot, VehicleProfile } from './types'
 import CsvTransfer from './CsvTransfer'
 import Help from './Help'
+import {notifyError as setError} from './Snackbar'
 import { exportProfiles, exportUnits, importProfiles, importUnits } from './csv'
 import { located } from './OperationalMap'
 const fields = [['height','Altura (m)'],['width','Largura (m)'],['length','Comprimento (m)'],['weight','Peso (t)'],['axle_load','Carga por eixo (t)']] as const
@@ -9,7 +10,6 @@ const emptyBase = (): Base => ({id:'',name:'',unitId:'',lat:null,lon:null,addres
 export default function SettingsPanel({ section, settings, state, busy, save }: { section: 'units'|'profiles'; settings: Settings; state: Snapshot; busy: boolean; save: (s: Settings) => Promise<void> }) {
   const [bases, setBases] = useState<Base[]>(() => structuredClone(settings.bases))
   const [profiles, setProfiles] = useState<VehicleProfile[]>(() => structuredClone(settings.profiles))
-  const [error, setError] = useState('')
   const [base, setBase] = useState<Base>(emptyBase)
   const [lat, setLat] = useState(''), [lon, setLon] = useState('')
   const [profile, setProfile] = useState<VehicleProfile>({ id: '', name: '', costing: 'truck' })
@@ -57,7 +57,6 @@ export default function SettingsPanel({ section, settings, state, busy, save }: 
         }}>{profile.id?'Atualizar perfil na lista':'+ Adicionar perfil à lista'}</button>{profile.id&&<button className="text-button" onClick={()=>setProfile({id:'',name:'',costing:'truck'})}>Cancelar edição</button>}
       </section><section className="card"><h3>Perfis cadastrados <span className="count">{profiles.length}</span></h3><div className="item-list">{profiles.map(p=><article className="saved-item" key={p.id}><div><strong>{p.name}</strong><small>{p.costing==='auto'?'Carro':'Caminhão'} · {fields.filter(([key])=>p[key]!==undefined).map(([key,label])=>`${label}: ${p[key]}`).join(' · ')||'Parâmetros padrão do servidor'}</small></div><div className="item-buttons"><button className="text-button" onClick={()=>setProfile({...p})}>Editar</button><button className="text-button danger" onClick={()=>setProfiles(profiles.filter(x=>x.id!==p.id))}>Remover</button></div></article>)}</div><Help>Perfis de rota são independentes do tipo do recurso CAD e não definem aptidão operacional automaticamente.</Help></section></div>
     </>}
-    {error&&<p role="alert" className="error-banner">{error}</p>}
     <div className="save-bar"><Help>Importação e edição alteram a lista. Salve para gravar esta aba no computador; a outra aba será preservada.</Help><button className="button primary" disabled={busy} onClick={async()=>{try{await save(section==='units'?{...settings,bases}:{...settings,profiles});setError('')}catch(e){setError((e as Error).message)}}}>{busy?'Salvando…':'Salvar cadastro'}</button></div>
   </section>
 }

@@ -39,28 +39,14 @@ public final class CadReaderWindow extends JFrame {
     private final Path root = java.nio.file.Paths.get(System.getProperty("user.home"), ".java-cad-reader");
     private final JPasswordField botToken = new JPasswordField();
     private final JTextField botGuild = new JTextField(), botForum = new JTextField(), botRole = new JTextField();
-    private volatile DiscordBot bot;
-    private volatile CadSummary summary;
-    private boolean botStarting, botStopping;
-    private String botNotice = "parado";
     private final JLabel botState = new JLabel("  Bot: parado");
     private final JButton configureBotButton = new JButton("Configurar bot"),
-                          startBotButton = new JButton("Iniciar bot"),
-                          stopBotButton = new JButton("Parar bot");
-    private final CadOperationalState operational = new CadOperationalState();
+                          startBotButton = new JButton("Iniciar bot"), stopBotButton = new JButton("Parar bot");
+    private final CadApplication application = new CadApplication(root);
+    private final CadOperationalState operational = application.operational;
     private CadWebServer web;
-    private void requestWebHistory(String id) {
-        CadXmppReader session=reader;
-        if(session==null)throw new IllegalArgumentException("Conecte ao CAD para carregar o histórico.");
-        try { session.requestWebHistory(id); }
-        catch(java.io.IOException error){throw new IllegalArgumentException("Não foi possível solicitar o histórico ao CAD.");}
-    }
-    private volatile CadXmppReader reader;
-    private volatile CadMonitor activeMonitor;
-    private volatile Map<String, CadResourceFilter> resourceFilters = Collections.emptyMap();
-    private volatile DiscordPublisher discord;
-    private volatile boolean monitoring;
-    private volatile long generation;
+    private long displayedRevision = -1;
+    private String displayedFilters = "";
     private String savedCall = "", savedResource = "";
 
     /** Todos os componentes Swing são criados e atualizados no EDT. */
@@ -119,25 +105,10 @@ public final class CadReaderWindow extends JFrame {
         field(config, "Comandos Discord (opcional)", botButtons);
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         button(buttons, "2. Iniciar monitoramento", this::monitor);
-        button(buttons, "Reenviar pendentes", () -> {
-            if (discord != null)
-                discord.retry();
-            else
-                info("Inicie com publicação habilitada para acessar a fila.");
-        });
+        button(buttons, "Reenviar pendentes", application::retry);
         button(buttons, "Limpar pendentes", () -> {
-            DiscordPublisher publisher = discord;
-            if (publisher == null) {
-                info("Inicie com publicação habilitada para acessar a fila.");
-                return;
-            }
-            if (JOptionPane.showConfirmDialog(this,
-                    "Descartar todas as publicações pendentes desta sessão/webhook?\n"
-                    + "O histórico local e as mensagens já publicadas serão mantidos.\n"
-                    + "Um envio em andamento pode ser concluído. Novas atualizações continuarão sendo publicadas.",
-                    "Limpar pendentes", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                == JOptionPane.YES_OPTION)
-                publisher.clearPending();
+            if (JOptionPane.showConfirmDialog(this, "Descartar publicações pendentes?", "Limpar pendentes", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)
+                application.clearPending();
         });
         button(buttons, "Exportar CSV", this::export);
         button(buttons, "Abrir mapa Web", this::openWeb);
@@ -174,13 +145,18 @@ public final class CadReaderWindow extends JFrame {
         footer.add(botState);
         footer.add(hint);
         add(footer, BorderLayout.SOUTH);
+        application.listeners(this::queueLog, event -> {
+            if (!pendingEvents.offer(event)) { pendingEvents.poll(); pendingEvents.offer(event); }
+        });
         refreshBotControls();
         displayTimer.start();
+        try { web = new CadWebServer(application, root, 8080); }
+        catch (java.io.IOException e) { log("Servidor Web não iniciado; use Abrir mapa Web para tentar novamente."); }
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
                 displayTimer.stop();
-                disconnect();
                 if (web != null) web.close();
+                application.close();
                 tasks.shutdown();
                 dispose();
             }
@@ -189,8 +165,8 @@ public final class CadReaderWindow extends JFrame {
     private void openWeb() {
         try {
             if (web == null) {
-                try { web = new CadWebServer(operational, root, 8080,new ValhallaRouting(),()->summary,this::requestWebHistory); }
-                catch (java.net.BindException busy) { web = new CadWebServer(operational, root, 0,new ValhallaRouting(),()->summary,this::requestWebHistory); }
+                try { web = new CadWebServer(application, root, 8080); }
+                catch (java.net.BindException busy) { web = new CadWebServer(application, root, 0); }
                 log("Mapa Web local: " + web.url());
             }
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE))
@@ -221,6 +197,9 @@ public final class CadReaderWindow extends JFrame {
     /** Filas limitadas evitam sobrecarregar o EDT durante a carga inicial. */
     private void log(String s) {
         operational.activity("log", s, "");
+        queueLog(s);
+    }
+    private void queueLog(String s) {
         if (!pendingLogs.offer(s)) {
             pendingLogs.poll();
             pendingLogs.offer(s);
@@ -229,10 +208,8 @@ public final class CadReaderWindow extends JFrame {
 
     private void flushDisplay() {
         refreshBotControls();
-        DiscordPublisher publisher = discord;
-        String status
-            = publisher == null ? "Discord: publicação desativada nesta sessão" : publisher.status();
-        operational.publicationStatus(status);
+        syncApplication();
+        String status = BotJson.text(operational.snapshot(), "publicationStatus");
         if (!("  " + status).equals(deliveryState.getText())) {
             deliveryState.setText("  " + status);
             deliveryState.setToolTipText(status);
@@ -364,7 +341,7 @@ public final class CadReaderWindow extends JFrame {
 
     /** Decifra fora do EDT e aplica as preferências somente após sucesso completo. */
     private void loadProfile() {
-        if (reader != null) {
+        if (Boolean.TRUE.equals(application.status().get("connected"))) {
             info("Desconecte antes de abrir outro perfil.");
             return;
         }
@@ -428,7 +405,7 @@ public final class CadReaderWindow extends JFrame {
             info("Aguarde a operação do perfil terminar.");
             return;
         }
-        if (importing && reader != null) {
+        if (importing && Boolean.TRUE.equals(application.status().get("connected"))) {
             info("Desconecte antes de importar outro perfil.");
             return;
         }
@@ -510,270 +487,55 @@ public final class CadReaderWindow extends JFrame {
         return box.selectedId();
     }
 
-    /** A conexão bloqueante roda em executor; callbacks encaminham a apresentação ao EDT. */
-    private void connect() {
-        if (profileBusy) {
-            info("Aguarde a operação do perfil terminar.");
-            return;
-        }
-        if (reader != null) {
-            info("Já existe uma conexão. Desconecte para iniciar outra.");
-            return;
-        }
-        Map<String, String> options = new HashMap<>();
-        options.put("host", host.getText().trim());
-        options.put("to", host.getText().trim());
-        options.put("port", port.getText().trim());
-        options.put("user", user.getText().trim());
-        options.put("password", new String(password.getPassword()));
-        if (insecure.isSelected())
-            options.put("insecure", "true");
-        ReaderOptions parsed = ReaderOptions.from(options);
-        user.setText(parsed.username);
-        operational.reset();
-        operational.sessionConfig(parsed.host,parsed.port,parsed.insecure);
-        calls.clear();
-        resources.clear();
-        long connectionGeneration = ++generation;
-        operational.communication.beginSession();
-        CadMonitor monitor = new CadMonitor(e -> {
-            if (connectionGeneration == generation)
-                event(e);
-        });
-        monitor.setDiagnostics(message -> {
-            if (connectionGeneration == generation)
-                log("[PUBLICACAO] " + message);
-        });
-        activeMonitor = monitor;
-        resourceFilters = Collections.emptyMap();
-        CadXmppReader session = new CadXmppReader(parsed, new CadListener() {
-            public void onCadRequest(String id,String operation,String callId,int page,String outcome,long elapsedMillis){
-                if(connectionGeneration!=generation)return;
-                operational.communication.request(connectionGeneration+":"+id,operation,callId,page,outcome,elapsedMillis);
-                operational.details.request(callId,operation,page,outcome);
-            }
-            public void onCadNotification(String operation){if(connectionGeneration==generation)operational.communication.notification();}
-            public void onParticipantsFinished(String callId,boolean complete){if(connectionGeneration==generation)operational.details.finished(callId,true,complete);}
+    private Properties serviceSettings() {
+        Properties p = settings();
+        p.setProperty("password", new String(password.getPassword()));
+        p.setProperty("webhook", new String(webhook.getPassword()).trim());
+        p.setProperty("insecure", Boolean.toString(insecure.isSelected()));
+        p.setProperty("saveCadPassword", Boolean.toString(saveCadPassword.isSelected()));
+        p.setProperty("publish", Boolean.toString(publish.isSelected()));
+        return p;
+    }
+    private void connect() { application.configure(serviceSettings()); application.connect(); }
+    private void monitor() { application.monitor(selected(calls), selected(resources), publish.isSelected()); }
+    private void disconnect() { application.disconnect(); }
+    static String csv(String s) { return CadApplication.csv(s); }
 
-            public void onLog(String category, String text) {
-                if ("AUTH".equals(category) && "Autenticação confirmada".equals(text) && connectionGeneration==generation)
-                    operational.authenticated();
-                if ("AUTH".equals(category) && "Autenticação confirmada".equals(text))
-                    SwingUtilities.invokeLater(() -> {
-                        if (connectionGeneration == generation)
-                            password.setText("");
-                    });
-                log("[" + category + "] " + text);
+    /** Atualiza apenas revisões do serviço; a janela é uma apresentação, não a dona da sessão. */
+    private void syncApplication() {
+        Map<String,Object> status = application.status();
+        long revision = ((Number)status.get("revision")).longValue();
+        if (revision != displayedRevision) {
+            displayedRevision = revision;
+            displayedFilters = "";
+            if (revision > 0) {
+                Properties p = application.configuration();
+                host.setText(p.getProperty("host", "cad.sids.mg.gov.br"));
+                port.setText(p.getProperty("port", "7001")); user.setText(p.getProperty("user", ""));
+                password.setText(p.getProperty("password", "")); webhook.setText(p.getProperty("webhook", ""));
+                botToken.setText(p.getProperty("botToken", "")); botGuild.setText(p.getProperty("botGuild", ""));
+                botForum.setText(p.getProperty("botForum", "")); botRole.setText(p.getProperty("botRole", ""));
+                insecure.setSelected(Boolean.parseBoolean(p.getProperty("insecure", "true")));
+                saveCadPassword.setSelected(Boolean.parseBoolean(p.getProperty("saveCadPassword", "false")));
+                publish.setSelected(Boolean.parseBoolean(p.getProperty("publish", "false")));
+                savedCall=p.getProperty("calls", ""); savedResource=p.getProperty("resources", "");
             }
-            public void onFilters(Element cache) {
-                if (connectionGeneration != generation)
-                    return;
-                Map<String, CadResourceFilter> parsedFilters = new HashMap<>();
-                for (Element f : CadXml.collectionItems(cache, "filtrosRecurso", "filtroRecurso")) {
-                    CadResourceFilter filter = CadResourceFilter.from(f);
-                    parsedFilters.put(filter.id, filter);
-                }
-                resourceFilters = Collections.unmodifiableMap(parsedFilters);
-                CadSummary report = summary;
-                if (report != null) report.catalog(cache);
-                List<FilterSelector.Option> c = filters(cache, "filtrosChamada", "filtroChamada"),
-                                            r = filters(cache, "filtrosRecurso", "filtroRecurso");
-                SwingUtilities.invokeLater(() -> {
-                    if (reader != null && connectionGeneration == generation) {
-                        fill(calls, c, savedCall);
-                        fill(resources, r, savedResource);
-                        log("Selecione os filtros e clique em Iniciar monitoramento.");
-                    }
-                });
-            }
-            public void onHistoryFinished(String callId, boolean complete) {
-                if(connectionGeneration!=generation)return;
-                operational.details.finished(callId,false,complete);
-                monitor.historyFinished(callId, complete);
-            }
-            public void onMessage(Element message) {
-                if (connectionGeneration != generation) return;
-                operational.accept(message);
-                CadSummary report = summary;
-                if (report != null && connectionGeneration == generation) report.accept(message);
-                monitor.accept(message);
-            }
-        });
-        summary = new CadSummary(session);
-        monitor.setHistoryRequest(id -> {
-            if (connectionGeneration != generation)
-                return;
-            try {
-                session.requestHistory(id);
-            } catch (Exception e) {
-                monitor.historyFinished(id, false);
-                log("[HISTORICO] Não foi possível consultar a chamada " + id + ".");
-            }
-        });
-        monitor.setParticipantsRequest(id -> {
-            if (connectionGeneration != generation)
-                return;
-            try {
-                session.requestParticipants(id);
-            } catch (Exception e) {
-                log("[ENVOLVIDOS] Não foi possível consultar a chamada " + id + ".");
-            }
-        });
-        reader = session;
-        tasks.submit(() -> {
-            try {
-                session.start();
-            } catch (Exception e) {
-                log("Conexão encerrada: " + e.getMessage());
-                if (e.getMessage() != null && e.getMessage().contains("CREDENCIAIS_INVALIDAS"))
-                    log("[AUTH] O servidor recusou usuário/senha. A senha permanece no campo para "
-                        + "conferência com Mostrar. Digite sem as aspas do comando de terminal; não "
-                        + "compartilhe a senha nem capturas com ela visível.");
-            } finally {
-                session.close();
-                SwingUtilities.invokeLater(() -> {
-                    if (reader == session) {
-                        operational.disconnected();
-                        reader = null;
-                        stopBot();
-                        summary = null;
-                        stopPublisher();
-                        monitoring = false;
-                        publish.setEnabled(true);
-                        log("Desconectado. Para retomar, conecte e selecione os filtros novamente.");
-                    }
-                });
-            }
-        });
+        }
+        String filters = BotJson.write(status.get("callFilters")) + BotJson.write(status.get("resourceFilters"));
+        if (!filters.equals(displayedFilters)) {
+            displayedFilters = filters;
+            fillFromService(calls, status.get("callFilters"), savedCall);
+            fillFromService(resources, status.get("resourceFilters"), savedResource);
+        }
+        publish.setEnabled(!Boolean.TRUE.equals(status.get("monitoring")));
     }
-    private List<FilterSelector.Option> filters(Element e, String collection, String tag) {
-        List<FilterSelector.Option> result = new ArrayList<>();
-        for (Element f : CadXml.collectionItems(e, collection, tag))
-            result.add(new FilterSelector.Option(f.getAttribute("id"), CadXml.text(f, "descricao")));
-        return result;
-    }
-    private void fill(FilterSelector box, List<FilterSelector.Option> list, String saved) {
-        box.setOptions(list, saved);
-    }
-    /** Abre o publicador somente depois da escolha explícita do usuário. */
-    private void monitor() {
-        if (reader == null) {
-            info("Conecte primeiro.");
-            return;
+    private void fillFromService(FilterSelector selector, Object rows, String saved) {
+        List<FilterSelector.Option> options = new ArrayList<>();
+        for (Object row : BotJson.array(rows)) {
+            Map<String,Object> item = BotJson.object(row);
+            options.add(new FilterSelector.Option(BotJson.text(item,"value"), BotJson.text(item,"label")));
         }
-        if (monitoring) {
-            info("Desconecte antes de trocar filtros ou configuração de publicação.");
-            return;
-        }
-        String c = selected(calls), r = selected(resources);
-        if (c.isEmpty() || r.isEmpty()) {
-            info("Selecione os dois filtros retornados pelo CAD.");
-            return;
-        }
-        CadResourceFilter scope = resourceFilters.get(r);
-        if (scope == null || scope.units.isEmpty()) {
-            info("O filtro de recursos não contém unidades válidas. Reconecte para atualizar o catálogo.");
-            return;
-        }
-        CadXmppReader session = reader;
-        CadMonitor monitor = activeMonitor;
-        long currentGeneration = generation;
-        boolean publishing = publish.isSelected();
-        String url = new String(webhook.getPassword()).trim();
-        String lookupToken = new String(botToken.getPassword()).trim();
-        if (publishing && lookupToken.isEmpty()) {
-            info("Configure o token do bot para procurar tópicos existentes antes de publicar.");
-            return;
-        }
-        monitoring = true;
-        publish.setEnabled(false);
-        log("Preparando monitoramento; a carga inicial será somente local…");
-        tasks.submit(() -> {
-            DiscordPublisher created = null;
-            try {
-                monitor.setResourceFilter(scope);
-                operational.start(scope);
-                operational.filterConfig(c,r);
-                if (publishing) {
-                    created = new DiscordPublisher(url, root, this::log, null, scope);
-                    created.setTopicLookup(new DiscordTopicLookup(lookupToken, url));
-                }
-                DiscordPublisher publisher = created;
-                SwingUtilities.invokeLater(() -> {
-                    if (reader != session || generation != currentGeneration) {
-                        if (publisher != null)
-                            CompletableFuture.runAsync(publisher::close);
-                        return;
-                    }
-                    discord = publisher;
-                    tasks.submit(() -> {
-                        try {
-                            session.applyFilters(c, r);
-                            log("[FILTRO] Recursos restritos ao filtro " + r
-                                + "; unidades=" + scope.units.size() + "; tipos=" + scope.types.size());
-                            log("Monitoramento iniciado"
-                                + (publisher == null ? " somente local."
-                                                     : " com publicação no Discord. Somente mudanças após a "
-                                                           + "carga inicial serão publicadas."));
-                        } catch (Exception e) {
-                            monitoringFailed(session, currentGeneration, e);
-                        }
-                    });
-                });
-            } catch (Exception e) {
-                if (created != null)
-                    created.close();
-                monitoringFailed(session, currentGeneration, e);
-            }
-        });
-    }
-
-    private void monitoringFailed(CadXmppReader session, long expectedGeneration, Exception error) {
-        SwingUtilities.invokeLater(() -> {
-            if (reader != session || generation != expectedGeneration)
-                return;
-            monitoring = false;
-            operational.disconnected();
-            publish.setEnabled(true);
-            stopPublisher();
-            log("Não foi possível iniciar monitoramento: " + error.getMessage());
-        });
-    }
-    /** Registra a cronologia local e encaminha a mesma representação ao Discord. */
-    private void event(CadMonitor.Event event) {
-        try {
-            Path journal = root.resolve("historico.csv");
-            synchronized (this) {
-                Files.createDirectories(root);
-                if (!Files.exists(journal))
-                    AppFiles.write(journal, "recebido_utc;viatura;chamada;evento;detalhes\n");
-                Java8.writeString(journal,
-                                  csv(event.observed) + ";" + csv(event.resource) + ";" + csv(event.number)
-                                      + ";" + csv(event.title) + ";" + csv(event.body) + "\n",
-                                  StandardOpenOption.APPEND);
-            }
-        } catch (Exception e) {
-            log("Falha ao gravar histórico local.");
-        }
-        DiscordPublisher p = discord;
-        operational.activity("evento", event.title + " · " + event.resource + " · " + event.number,
-            event.body + "\n\nPublicação: " + (!event.publishable || event.resourceId.isEmpty() ? "somente local (regra do evento)." : p == null ? "não enviada: Discord desativado." : "encaminhada à fila Discord; acompanhe a confirmação ou falha nos registros de publicação."));
-        if (event.publishable && !event.resourceId.isEmpty()) {
-            if (p != null)
-                p.publish(event);
-            else
-                log("[PUBLICACAO] viatura=" + event.resource + "; chamada=" + event.number
-                    + "; evento somente local: publicação Discord desativada nesta sessão.");
-        }
-        if (!pendingEvents.offer(event)) {
-            pendingEvents.poll();
-            pendingEvents.offer(event);
-        }
-    }
-    static String csv(String s) {
-        if (s.matches("^[=+@-].*"))
-            s = "'" + s;
-        return "\"" + s.replace("\"", "\"\"") + "\"";
+        selector.setOptions(options, saved);
     }
     private void export() {
         JFileChooser chooser = new JFileChooser();
@@ -793,15 +555,9 @@ public final class CadReaderWindow extends JFrame {
             }
         }
     }
-    private void stopPublisher() {
-        DiscordPublisher p = discord;
-        discord = null;
-        if (p != null)
-            tasks.submit(p::close);
-    }
     /** Aplica a configuração mesmo sem CAD; cancelar não altera os campos do perfil. */
     private void configureBot() {
-        if (bot != null || botStarting || botStopping) {
+        if (Boolean.TRUE.equals(application.status().get("botRunning"))) {
             info("Pare o bot antes de alterar sua configuração.");
             return;
         }
@@ -828,6 +584,8 @@ public final class CadReaderWindow extends JFrame {
         botForum.setText(forum.getText().trim());
         botRole.setText(role.getText().trim());
         token.setText("");
+        if(Boolean.TRUE.equals(application.status().get("connected")))application.configureBot(serviceSettings());
+        else application.configure(serviceSettings());
         log("Bot: configuração aplicada. Use Salvar perfil para guardar o token criptografado e os IDs.");
         refreshBotControls();
     }
@@ -847,106 +605,14 @@ public final class CadReaderWindow extends JFrame {
             + "O token do bot é diferente da URL do webhook. A aplicação precisa permanecer aberta.");
     }
 
-    /** Controles e estado real do Gateway, atualizados exclusivamente no EDT. */
     private void refreshBotControls() {
-        CadSummary report = summary;
-        boolean ready = reader != null && report != null && report.hasFilters();
-        configureBotButton.setEnabled(bot == null && !botStarting && !botStopping && !profileBusy);
-        startBotButton.setEnabled(ready && bot == null && !botStarting && !botStopping && !profileBusy);
-        startBotButton.setToolTipText(ready ? "Conectar o bot usando a configuração do perfil"
-                                          : "Conecte ao CAD e aguarde o catálogo de filtros");
-        stopBotButton.setEnabled(bot != null && !botStopping);
-        String status = botStopping ? "encerrando…" : bot != null ? bot.status() : botNotice;
-        operational.botStatus(status);
-        botState.setText("  Bot: " + status);
-        botState.setToolTipText(status);
+        Map<String,Object> status = application.status();
+        boolean running=Boolean.TRUE.equals(status.get("botRunning"));
+        configureBotButton.setEnabled(!running && !profileBusy);
+        startBotButton.setEnabled(Boolean.TRUE.equals(status.get("connected")) && !BotJson.array(status.get("callFilters")).isEmpty() && !running && !profileBusy);
+        stopBotButton.setEnabled(running && !Boolean.TRUE.equals(status.get("botStopping")));
+        botState.setText("  Bot: " + BotJson.text(operational.snapshot(), "botStatus"));
     }
-
-    /** Conexão explícita, separada da edição/salvamento da configuração. */
-    private void startBot() {
-        if (bot != null || botStarting || botStopping) return;
-        CadSummary report = summary;
-        if (reader == null || report == null || !report.hasFilters()) {
-            info("Conecte ao CAD e aguarde o catálogo de filtros antes de iniciar o bot.");
-            return;
-        }
-        String token = new String(botToken.getPassword()).trim();
-        if (token.isEmpty()) { info("Use Configurar bot para informar o token e os IDs."); return; }
-        final DiscordBot candidate;
-        try {
-            candidate = new DiscordBot(token, botGuild.getText().trim(), botForum.getText().trim(),
-                                       botRole.getText().trim(), report, this::log);
-        } catch (Exception e) { info(e.getMessage()); return; }
-        bot = candidate;
-        botStarting = true;
-        refreshBotControls();
-        log("Bot: iniciando e registrando /cad-reader no servidor configurado…");
-        tasks.submit(() -> runBotStart(candidate, token));
-    }
-
-    /** Uma classe incompatível de um JAR atualizado também precisa encerrar o estado de início. */
-    private void runBotStart(DiscordBot candidate, String token) {
-        String error = null;
-        try {
-            log("Bot: tarefa de início em execução…");
-            candidate.start(token, root);
-        } catch (LinkageError incompatibleClasses) {
-            error = "classes da aplicação incompatíveis (" + incompatibleClasses.getClass().getSimpleName()
-                + "). Feche completamente o CAD-Reader e abra novamente o JAR atualizado.";
-        } catch (Exception e) {
-            error = e instanceof IllegalArgumentException || e instanceof IllegalStateException
-                        || e instanceof DiscordBotApi.ApiFailure ? e.getMessage() : e.getClass().getSimpleName();
-        } finally {
-            final String failure = error;
-            if (failure != null) {
-                try { candidate.close(); }
-                catch (Exception | LinkageError closeFailure) {
-                    log("Bot: falha ao liberar recursos (" + closeFailure.getClass().getSimpleName() + "). Feche a aplicação.");
-                }
-            }
-            SwingUtilities.invokeLater(() -> {
-                if (bot != candidate || botStopping) return;
-                botStarting = false;
-                if (failure != null) {
-                    bot = null;
-                    botNotice = "falha ao iniciar: " + failure;
-                    log("Bot: não foi possível iniciar: " + failure);
-                }
-                refreshBotControls();
-            });
-        }
-    }
-
-    private void stopBot() {
-        DiscordBot running = bot;
-        if (running == null || botStopping) return;
-        botStopping = true;
-        refreshBotControls();
-        log("Bot: encerrando. Uma operação já aceita pelo Discord pode ser concluída.");
-        tasks.submit(() -> {
-            running.close();
-            SwingUtilities.invokeLater(() -> {
-                if (bot != running) return;
-                bot = null;
-                botStarting = botStopping = false;
-                botNotice = "parado";
-                refreshBotControls();
-            });
-        });
-    }
-    private void disconnect() {
-        operational.disconnected();
-        stopBot();
-        summary = null;
-        password.setText("");
-        generation++;
-        CadXmppReader session = reader;
-        reader = null;
-        monitoring = false;
-        publish.setEnabled(true);
-        if (session != null)
-            tasks.submit(session::close);
-        stopPublisher();
-        log("Desconectando; publicações não confirmadas permanecem em disco.");
-    }
+    private void startBot() { application.startBot(); }
+    private void stopBot() { application.stopBot(); refreshBotControls(); }
 }

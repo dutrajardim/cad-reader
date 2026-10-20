@@ -72,7 +72,8 @@ public final class ReaderOptions {
     public static ReaderOptions parse(String[] args) {
         if (Arrays.asList(args).contains("--help")) {
             System.out.println(
-                "Uso: java -jar target/java-cad-reader-1.0.0.jar [--gui | --user USUARIO opções]\n"
+                "Uso: java -jar target/java-cad-reader-1.0.0.jar [--gui | --web [PORTA] | --user USUARIO opções]\n"
+                + "--web [PORTA]           Administração e mapa sem janela Java; padrão: 8080\n"
                 + "Senha: variável CAD_PASSWORD ou --password SENHA\n"
                 + "--host HOST              Endereço TCP; padrão: domínio de --to\n"
                 + "--port PORTA             Porta TCP; padrão: 5222 (informe a porta real do CAD)\n"

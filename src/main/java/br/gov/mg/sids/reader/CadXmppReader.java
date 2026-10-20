@@ -748,6 +748,20 @@ private void log(String category, String text) { listener.onLog(category, text);
 /** Abre a interface sem argumentos ou com --gui; demais opções executam o modo terminal. */
 public static void main(String[] args) {
     try {
+        if (args.length > 0 && args[0].equals("--web")) {
+            if (args.length > 2) throw new IllegalArgumentException("Uso: --web [porta]");
+            int port = args.length == 2 ? Integer.parseInt(args[1]) : 8080;
+            if (port < 1 || port > 65535) throw new IllegalArgumentException("Porta Web deve estar entre 1 e 65535.");
+            java.nio.file.Path root = java.nio.file.Paths.get(System.getProperty("user.home"), ".java-cad-reader");
+            CadApplication application = new CadApplication(root);
+            final CadWebServer web;
+            try { web = new CadWebServer(application, root, port); }
+            catch (Exception e) { application.close(); throw e; }
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> { web.close(); application.close(); }));
+            System.out.println("Administração: " + web.url() + "/admin");
+            System.out.println("Acompanhamento: " + web.url() + "/ (também acessível pelo IP deste computador na rede)");
+            return;
+        }
         if (args.length == 0 || java.util.Arrays.asList(args).contains("--gui")) {
             javax.swing.SwingUtilities.invokeLater(() -> new CadReaderWindow().setVisible(true));
             return;

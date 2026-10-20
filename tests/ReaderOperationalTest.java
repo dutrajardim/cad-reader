@@ -98,7 +98,9 @@ public final class ReaderOperationalTest {
         try { failing.connect(server); throw new AssertionError("Falha esperada"); } catch (java.io.IOException expected) {}
         check(Boolean.FALSE.equals(failing.status().get("connected")), "Falha mantém roteamento desconectado");
         if (!Arrays.asList(args).contains("--no-sockets")) {http(root, router);reportHttp(root);linkageHttp(root);historyHttp(root);}
-        Files.deleteIfExists(root.resolve("mapa-operacional.json")); Files.delete(root);
+        try(java.util.stream.Stream<Path> paths=Files.walk(root)) {
+            for(Path file:(Iterable<Path>)paths.sorted(Comparator.reverseOrder())::iterator)Files.deleteIfExists(file);
+        }
         System.out.println("PASS mapa operacional: estado, escopo, classificação, coordenadas, persistência, perfis, roteamento opcional, cache e HTTP local");
     }
     static void areas() throws Exception {
@@ -234,6 +236,17 @@ public final class ReaderOperationalTest {
         check(BotJson.text(firstCall(state), "assignmentStatus").equals("reported"), "Empenho informado sem viatura identificada não é tratado como ausência confirmada");
         check(!BotJson.write(state.snapshot()).contains("_revision"), "Metadados de correlação não são expostos no DTO Web");
     }
+    static HttpClient adminClient(CadWebServer web,String address) throws Exception {
+        HttpClient client=HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build();
+        adminLogin(client,web,address);return client;
+    }
+    static void adminLogin(HttpClient client,CadWebServer web,String address) throws Exception {
+        Map<String,Object> bootstrap=BotJson.object(BotJson.parse(client.send(HttpRequest.newBuilder(URI.create(address+"/api/state")).GET().build(),HttpResponse.BodyHandlers.ofString()).body()));
+        HttpResponse<String> response=client.send(HttpRequest.newBuilder(URI.create(address+"/api/admin/login"))
+            .header("X-CAD-Token",BotJson.text(bootstrap,"token"))
+            .POST(HttpRequest.BodyPublishers.ofString(BotJson.write(Java8.map("name","http-test","password","test-password")))).build(),HttpResponse.BodyHandlers.ofString());
+        check(response.statusCode()==200,"Login administrativo: "+response.body());
+    }
     static void historyHttp(Path root) throws Exception {
         AtomicInteger requested=new AtomicInteger();
         try(CadWebServer web=new CadWebServer(state(),root,0,new ValhallaRouting(),()->null,id->{check(id.equals("1"),"Consulta usa ID validado");requested.incrementAndGet();})){
@@ -253,7 +266,7 @@ public final class ReaderOperationalTest {
     static void linkageHttp(Path root) throws Exception {
         ValhallaRouting routing=new ValhallaRouting((host,path,body)->{throw new NoClassDefFoundError("br/gov/mg/sids/reader/DiscordBotApi");});
         try(CadWebServer web=new CadWebServer(state(),root,0,routing)){
-            HttpClient client=HttpClient.newHttpClient();
+            HttpClient client=adminClient(web, web.url());
             Map<String,Object> bootstrap=BotJson.object(BotJson.parse(client.send(HttpRequest.newBuilder(URI.create(web.url()+"/api/state")).GET().build(),HttpResponse.BodyHandlers.ofString()).body()));
             HttpRequest connect=HttpRequest.newBuilder(URI.create(web.url()+"/api/routing/connect")).header("X-CAD-Token",BotJson.text(bootstrap,"token")).POST(HttpRequest.BodyPublishers.ofString("{}")).build();
             for(int n=0;n<2;n++){
@@ -294,7 +307,7 @@ public final class ReaderOperationalTest {
     static void http(Path root, ValhallaRouting router) throws Exception {
         CadOperationalState state = state(); state.activity("log","Publicação confirmada", "Teste");
         try (CadWebServer web = new CadWebServer(state, root, 0, router)) {
-            HttpClient client = HttpClient.newHttpClient();
+            HttpClient client = adminClient(web, web.url());
             HttpResponse<String> page = client.send(HttpRequest.newBuilder(URI.create(web.url())).GET().build(), HttpResponse.BodyHandlers.ofString());
             check(page.statusCode() == 200 && page.body().contains("CAD Reader"), "Frontend servido de dentro do JAR");
             HttpResponse<String> catalog = client.send(HttpRequest.newBuilder(URI.create(web.url() + "/assets/unidades-cbmmg-rmbh.csv")).GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -324,6 +337,7 @@ public final class ReaderOperationalTest {
             for(String address:addresses){
                 String networkUrl="http://"+address+":"+URI.create(web.url()).getPort();
                 check(client.send(HttpRequest.newBuilder(URI.create(networkUrl+"/api/state")).GET().build(),HttpResponse.BodyHandlers.ofString()).statusCode()==200,"Estado acessível pelo IP "+address);
+                adminLogin(client, web, networkUrl);
                 HttpRequest allowed=HttpRequest.newBuilder(URI.create(networkUrl+"/api/routing/disconnect")).header("Origin",networkUrl).header("X-CAD-Token",token).POST(HttpRequest.BodyPublishers.ofString("{}")).build();
                 check(client.send(allowed,HttpResponse.BodyHandlers.ofString()).statusCode()==200,"Escrita com origem e token válidos pelo IP "+address);
                 HttpRequest blocked=HttpRequest.newBuilder(URI.create(networkUrl+"/api/routing/disconnect")).header("Origin","http://external.example").header("X-CAD-Token",token).POST(HttpRequest.BodyPublishers.ofString("{}")).build();

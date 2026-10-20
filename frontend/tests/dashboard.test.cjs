@@ -8,3 +8,17 @@ assert.deepEqual(areaSummary([{areas:[{id:'7',name:'Contagem'},{id:'7',name:'Con
 const mixed=resourceSummary([r('D','  '),r('D','Sem equipe'),r('D','Restrita',[{status:'NL'}]),r('I','Oficina')]);
 assert.equal(mixed.availableUnrestricted,1);assert.equal(mixed.availableRestricted,1);assert.equal(mixed.restricted,3);assert.equal(mixed.assigned,1);assert.equal(mixed.available,mixed.availableUnrestricted+mixed.availableRestricted);
 console.log('PASS disponíveis: separa com/sem restrição, ignora espaços e preserva prioridade do empenho');
+
+const {baseMarkerHtml}=require(path.join(dir,'baseMarker.js'));
+const marker=baseMarkerHtml('1º BBM <script> & "teste"');
+assert(marker.includes('station-marker')&&marker.includes('<svg'));
+assert(marker.includes('1º BBM &lt;script&gt; &amp; &quot;teste&quot;'));
+assert(!marker.includes('<script>'));
+console.log('PASS bases: escudo com capacete, nome permanente e escape HTML do cadastro');
+
+const {mapPoints}=require(path.join(dir,'mapView.js'));
+const bases=[{id:'sem-cad',unitId:'',lat:-19.93,lon:-44.05},{id:'outra-unidade',unitId:'999',lat:-19.97,lon:-44.28}];
+assert.deepEqual(mapPoints([],bases),[[-19.93,-44.05],[-19.97,-44.28]]);
+assert.deepEqual(mapPoints([{lat:-18,lon:-43}],bases),[[-18,-43],[-19.93,-44.05],[-19.97,-44.28]]);
+assert.deepEqual(mapPoints([{lat:null,lon:-44},{lat:NaN,lon:0},{lat:0,lon:Infinity},{lat:91,lon:0},{lat:0,lon:181}]),[]);
+console.log('PASS enquadramento: bases com e sem ID CAD, mapa sem ocorrências, união com ocorrências e coordenadas válidas');

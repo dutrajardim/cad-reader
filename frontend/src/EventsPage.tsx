@@ -1,3 +1,4 @@
+import {useErrorSnackbar} from './Snackbar'
 import { memo, useEffect, useMemo, useState } from 'react'
 import Help from './Help'
 import { changes } from './api'
@@ -12,6 +13,7 @@ const EventRow=memo(function EventRow({event:e}:{event:Activity}){
 export default function EventsPage({publicationStatus}:{publicationStatus?:string}){
  const [limit,setLimit]=useState(100)
  const [items,setItems]=useState<Activity[]>([]),[error,setError]=useState(''),[search,setSearch]=useState(''),[kind,setKind]=useState('all')
+ useErrorSnackbar(error)
  useEffect(()=>{let after=0;const read=changes();return pollVisible(async signal=>{
   try{const next=await read<Activity[]>(`events?after=${after}`,signal);if(signal.aborted)return;setError('');if(!next?.length)return
    after=Math.max(after,...next.map(e=>e.id));const incoming=new Set(next.map(e=>e.id));setItems(old=>[...next,...old.filter(e=>!incoming.has(e.id))].slice(0,1000))
@@ -19,5 +21,5 @@ export default function EventsPage({publicationStatus}:{publicationStatus?:strin
  })},[])
  const visible=useMemo(()=>items.filter(e=>(kind==='all'||(kind==='publication'?/publica|discord|pendente|enviad/i.test(e.title+' '+e.details):e.category===kind))&&normalizeSearch(e.title+' '+e.details).includes(normalizeSearch(search))),[items,kind,search])
 
- return <main className="admin-page"><div className="section-heading"><h2>Eventos e publicações</h2><p>{publicationStatus}</p></div><div className="event-filters"><label>Buscar evento<input value={search} onChange={e=>{setSearch(e.target.value);setLimit(100)}} placeholder="Viatura, ocorrência, mensagem…"/></label><label>Exibir<select value={kind} onChange={e=>{setKind(e.target.value);setLimit(100)}}><option value="all">Todos</option><option value="evento">Atualizações de ocorrência</option><option value="publication">Publicação / Discord</option><option value="log">Registros da aplicação</option></select></label></div><Help>Últimos 1.000 registros desta execução, mais recentes primeiro. Encaminhado à fila não significa publicado; as confirmações e falhas aparecem nos registros do publicador.</Help>{error&&<p role="alert">{error}</p>}<div className="event-list">{visible.slice(0,limit).map(e=><EventRow key={e.id} event={e}/>)}{visible.length>limit&&<button className="button secondary" onClick={()=>setLimit(n=>n+100)}>Mostrar mais eventos ({visible.length-limit})</button>}{!visible.length&&<div className="card">Nenhum evento para estes filtros.</div>}</div></main>
+ return <main className="admin-page"><div className="section-heading"><h2>Eventos e publicações</h2><p>{publicationStatus}</p></div><div className="event-filters"><label>Buscar evento<input value={search} onChange={e=>{setSearch(e.target.value);setLimit(100)}} placeholder="Viatura, ocorrência, mensagem…"/></label><label>Exibir<select value={kind} onChange={e=>{setKind(e.target.value);setLimit(100)}}><option value="all">Todos</option><option value="evento">Atualizações de ocorrência</option><option value="publication">Publicação / Discord</option><option value="log">Registros da aplicação</option></select></label></div><Help>Últimos 1.000 registros desta execução, mais recentes primeiro. Encaminhado à fila não significa publicado; as confirmações e falhas aparecem nos registros do publicador.</Help><div className="event-list">{visible.slice(0,limit).map(e=><EventRow key={e.id} event={e}/>)}{visible.length>limit&&<button className="button secondary" onClick={()=>setLimit(n=>n+100)}>Mostrar mais eventos ({visible.length-limit})</button>}{!visible.length&&<div className="card">Nenhum evento para estes filtros.</div>}</div></main>
 }
