@@ -752,7 +752,7 @@ public static void main(String[] args) {
             if (args.length > 2) throw new IllegalArgumentException("Uso: --web [porta]");
             int port = args.length == 2 ? Integer.parseInt(args[1]) : 8080;
             if (port < 1 || port > 65535) throw new IllegalArgumentException("Porta Web deve estar entre 1 e 65535.");
-            java.nio.file.Path root = java.nio.file.Paths.get(System.getProperty("user.home"), ".java-cad-reader");
+            java.nio.file.Path root = java.nio.file.Paths.get(System.getProperty("user.home"), ".java-cad-reader", Integer.toString(port));
             CadApplication application = new CadApplication(root);
             final CadWebServer web;
             try { web = new CadWebServer(application, root, port); }
