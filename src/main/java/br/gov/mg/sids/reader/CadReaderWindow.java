@@ -44,7 +44,6 @@ public final class CadReaderWindow extends JFrame {
                           startBotButton = new JButton("Iniciar bot"), stopBotButton = new JButton("Parar bot");
     private final CadApplication application = new CadApplication(root);
     private final CadOperationalState operational = application.operational;
-    private CadWebServer web;
     private long displayedRevision = -1;
     private String displayedFilters = "";
     private String savedCall = "", savedResource = "";
@@ -111,7 +110,6 @@ public final class CadReaderWindow extends JFrame {
                 application.clearPending();
         });
         button(buttons, "Exportar CSV", this::export);
-        button(buttons, "Abrir mapa Web", this::openWeb);
         JPanel top = new JPanel(new BorderLayout());
         top.add(config, BorderLayout.CENTER);
         top.add(buttons, BorderLayout.SOUTH);
@@ -150,31 +148,14 @@ public final class CadReaderWindow extends JFrame {
         });
         refreshBotControls();
         displayTimer.start();
-        try { web = new CadWebServer(application, root, 8080); }
-        catch (java.io.IOException e) { log("Servidor Web não iniciado; use Abrir mapa Web para tentar novamente."); }
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
                 displayTimer.stop();
-                if (web != null) web.close();
                 application.close();
                 tasks.shutdown();
                 dispose();
             }
         });
-    }
-    private void openWeb() {
-        try {
-            if (web == null) {
-                try { web = new CadWebServer(application, root, 8080); }
-                catch (java.net.BindException busy) { web = new CadWebServer(application, root, 0); }
-                log("Mapa Web local: " + web.url());
-            }
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE))
-                Desktop.getDesktop().browse(java.net.URI.create(web.url()));
-            else info("Abra no navegador: " + web.url());
-        } catch (Exception e) {
-            info("Não foi possível abrir o mapa Web (" + e.getClass().getSimpleName() + "). A conexão CAD continua disponível.");
-        }
     }
     private void field(JPanel p, String label, JComponent value) {
         p.add(new JLabel(label));
