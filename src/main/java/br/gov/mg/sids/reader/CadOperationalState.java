@@ -20,10 +20,14 @@ final class CadOperationalState {
     private final Deque<Map<String,Object>> activity = new ArrayDeque<>();
     private Map<String,Object> sessionConfig = Collections.emptyMap();
     private String callFilterId = "", resourceFilterId = "";
+    private String callFilterName = "", resourceFilterName = "";
     synchronized void sessionConfig(String host, int port, boolean insecure) {
         unitNames.clear();revision++; sessionConfig = Java8.map("host",host,"port",port,"tlsValidation",!insecure);
     }
-    synchronized void filterConfig(String calls, String resources) {callFilterId=calls;resourceFilterId=resources;revision++;}
+    synchronized void filterConfig(String calls, String resources) {filterConfig(calls, resources, "", "");}
+    synchronized void filterConfig(String calls, String resources, String callName, String resourceName) {
+        callFilterId=calls;resourceFilterId=resources;callFilterName=callName;resourceFilterName=resourceName;revision++;
+    }
     private String botStatus="parado";
     synchronized void botStatus(String value){if(!botStatus.equals(value)){botStatus=value;revision++;}}
     private String publicationStatus = "Discord: publicação desativada nesta sessão";
@@ -41,7 +45,7 @@ final class CadOperationalState {
 
 
     synchronized void reset() {
-        details.reset(); calls.clear(); resources.clear(); scope = null; callFilterId = resourceFilterId = "";
+        details.reset(); calls.clear(); resources.clear(); scope = null; callFilterId = resourceFilterId = callFilterName = resourceFilterName = "";
         connected = callsReady = resourcesReady = false;
         status = "Aguardando seleção dos filtros e início do monitoramento.";
         updated = ""; revision++;
@@ -173,7 +177,7 @@ final class CadOperationalState {
         cachedSnapshot = Java8.map("calls", callViews, "resources", resourceViews,
             "connected", connected, "ready", connected && callsReady && resourcesReady,
             "status", status, "updatedAt", updated, "revision", revision,
-            "sessionConfig",sessionConfig,"callFilterId",callFilterId,"resourceFilterId",resourceFilterId,"botStatus",botStatus,"publicationStatus", publicationStatus, "scopeUnits", scope == null ? Collections.emptySet() : scope.units,
+            "sessionConfig",sessionConfig,"callFilterName",callFilterName,"resourceFilterName",resourceFilterName,"callFilterId",callFilterId,"resourceFilterId",resourceFilterId,"botStatus",botStatus,"publicationStatus", publicationStatus, "scopeUnits", scope == null ? Collections.emptySet() : scope.units,
             "scopeTypes", scope == null ? Collections.emptySet() : scope.types);
         return cachedSnapshot;
     }

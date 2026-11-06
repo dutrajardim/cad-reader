@@ -41,7 +41,12 @@ public final class ReaderOperationalTest {
         state = state(); state.disconnected();
         check(!Boolean.TRUE.equals(state.snapshot().get("ready")) && BotJson.array(state.snapshot().get("calls")).size() == 1, "Desconexão marca dados antigos sem perdê-los");
         try { state.call("1"); throw new AssertionError("Consulta deveria recusar estado antigo"); } catch (IllegalArgumentException expected) {}
+        state.filterConfig("10","20","Chamadas da unidade","Viaturas da unidade");
+        check("Chamadas da unidade".equals(state.snapshot().get("callFilterName"))&&"Viaturas da unidade".equals(state.snapshot().get("resourceFilterName")),"Retrato público identifica os filtros selecionados");
+        state.disconnected();
+        check("10".equals(state.snapshot().get("callFilterId")),"Dados desconectados preservam identificação dos filtros");
         state.reset(); check(BotJson.array(state.snapshot().get("calls")).isEmpty(), "Nova sessão limpa o estado anterior");
+        check("".equals(state.snapshot().get("callFilterName"))&&"".equals(state.snapshot().get("resourceFilterName")),"Nova sessão limpa nomes de filtros anteriores");
         Path root = Files.createTempDirectory("cad-map-test-");
         Map<String, Object> config = OperationalSettings.defaults();
         Map<String, Object> base = Java8.map("id", "b", "unitId", "7", "name", "Base teste", "lat", -19.95, "lon", -44.15);

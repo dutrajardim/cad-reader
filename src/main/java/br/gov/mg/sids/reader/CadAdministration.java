@@ -100,6 +100,29 @@ final class CadAdministration implements AutoCloseable {
         }
         return status();
     }
+    synchronized Map<String,Object> importConfiguration(Map<String,Object> body) throws Exception {
+        String encoded=BotJson.text(body,"file");
+        if(encoded.isEmpty()||encoded.length()>174764)throw new IllegalArgumentException("Arquivo ausente ou muito grande.");
+        byte[] bytes;
+        try { bytes=Base64.getDecoder().decode(encoded); }
+        catch(IllegalArgumentException e){throw new IllegalArgumentException("Arquivo de perfil inválido.");}
+        char[] protection=BotJson.text(body,"password").toCharArray();
+        Path temp=null;
+        try {
+            if(bytes.length>131072)throw new IllegalArgumentException("Arquivo de perfil muito grande.");
+            temp=Files.createTempFile("cad-import-", ".properties");
+            Files.write(temp,bytes);
+            Properties loaded=new ProfileStore(temp).load(protection);
+            if(!loaded.containsKey("host")||!loaded.containsKey("user"))throw new IllegalArgumentException("Arquivo não contém um perfil CAD Reader válido.");
+            if(!loaded.getProperty("password", "").isEmpty())loaded.setProperty("saveCadPassword","true");
+            Map<String,Object> config=new LinkedHashMap<>();
+            for(String key:loaded.stringPropertyNames())config.put(key,loaded.getProperty(key));
+            return configure(Java8.map("revision",body.get("revision"),"config",config));
+        } finally {
+            Arrays.fill(protection,'\0');Arrays.fill(bytes,(byte)0);
+            if(temp!=null)Files.deleteIfExists(temp);
+        }
+    }
     synchronized void save() throws Exception { save(profile(active),application.configuration(),password); }
     synchronized String export() throws Exception { save();return Base64.getEncoder().encodeToString(Files.readAllBytes(profile(active))); }
     synchronized void action(String action,Map<String,Object> body) throws Exception {

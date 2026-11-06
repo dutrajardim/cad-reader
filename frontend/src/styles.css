@@ -115,3 +115,7 @@
 .monitor-section h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:15px}
 .monitor-section .admin-actions{margin-top:0;align-items:center}
 .admin-page h2 .help{vertical-align:middle}
+
+.monitoring-scope{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding:10px 28px;background:#eef4f8;border-bottom:1px solid #dbe3ec;color:#42566d;font-size:12px;overflow-wrap:anywhere}
+.monitoring-scope-status{font-weight:650;color:#176a8c}
+@media(max-width:720px){.monitoring-scope{padding:10px 14px;gap:8px 14px}}

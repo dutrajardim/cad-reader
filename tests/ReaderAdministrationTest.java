@@ -32,6 +32,16 @@ public final class ReaderAdministrationTest {
     static String encoded(Path file)throws Exception{return Base64.getEncoder().encodeToString(Files.readAllBytes(file));}
     static void clear(Path root)throws Exception{try(java.util.stream.Stream<Path> paths=Files.walk(root)){for(Path p:(Iterable<Path>)paths.sorted(Comparator.reverseOrder())::iterator)Files.deleteIfExists(p);}}
     public static void main(String[] args)throws Exception {
+        String tunnelOrigin=CadWebServer.normalizePublicOrigin("https://cad-exemplo.trycloudflare.com/");
+        check(CadWebServer.publicRequestAllowed("cad-exemplo.trycloudflare.com",null,tunnelOrigin),"Túnel permite navegação inicial sem Origin");
+        check(CadWebServer.publicRequestAllowed("cad-exemplo.trycloudflare.com",tunnelOrigin,tunnelOrigin),"Túnel permite mesma origem HTTPS");
+        check(!CadWebServer.publicRequestAllowed("outro.trycloudflare.com",null,tunnelOrigin),"Não permite outro túnel");
+        check(!CadWebServer.publicRequestAllowed("cad-exemplo.trycloudflare.com","https://externo.example",tunnelOrigin),"Recusa origem externa");
+        check(!CadWebServer.publicRequestAllowed("cad-exemplo.trycloudflare.com","null",tunnelOrigin),"Recusa origem opaca");
+        check(!CadWebServer.publicRequestAllowed("cad-exemplo.trycloudflare.com",null,""),"Túnel exige autorização explícita");
+        try {CadWebServer.normalizePublicOrigin("https://cad.example/caminho");throw new AssertionError("Caminho deve ser recusado");}
+        catch(IllegalArgumentException expected){}
+
         Path root=Files.createTempDirectory("cad-admin-test-");
         try {
             try(CadApplication application=new CadApplication(root);CadWebServer web=new CadWebServer(application,root,0)) {
@@ -61,6 +71,23 @@ public final class ReaderAdministrationTest {
                 check(!Files.readString(root.resolve("admin-auth/primeiro.properties")).contains("senha-primeiro"),"Autenticação persiste hash, não senha");
                 check(new ProfileStore(root.resolve("perfis/primeiro.properties")).load("senha-primeiro".toCharArray()).getProperty("password").equals("senha-cad-protegida"),"Arquivo continua compatível com ProfileStore");
                 check(!anonymous.get("state").body().contains("senha-cad-protegida")&&!anonymous.get("state").body().contains("bot-token-ficticio"),"Credenciais privadas não vazam para acompanhamento");
+                Properties importedConfig=CadApplication.defaults();importedConfig.setProperty("user","IMPORTADO");
+                importedConfig.setProperty("botToken","token-importado-ficticio");
+                Path importPath=root.resolve("importar.properties");
+                new ProfileStore(importPath).save(importedConfig,"https://discord.com/api/webhooks/123/importado","senha-cad-importada","senha-do-arquivo".toCharArray());
+                String importFile=Base64.getEncoder().encodeToString(Files.readAllBytes(importPath));
+                Object importRevision=data(a.get("admin/status")).get("revision");
+                check(anonymous.post("admin/import",Java8.map("revision",importRevision,"file",importFile,"password","senha-do-arquivo")).statusCode()==401,"Importação exige autenticação");
+                check(a.post("admin/import",Java8.map("revision",importRevision,"file",importFile,"password","senha-incorreta")).statusCode()!=200,"Senha incorreta recusa importação");
+                check(!application.configuration().getProperty("user").equals("IMPORTADO"),"Falha preserva configuração");
+                HttpResponse<String> importedResponse=a.post("admin/import",Java8.map("revision",importRevision,"file",importFile,"password","senha-do-arquivo"));
+                check(importedResponse.statusCode()==200,"Importação no perfil ativo: "+importedResponse.body());
+                check(BotJson.text(data(importedResponse),"profile").equals("primeiro"),"Importação mantém identidade do perfil");
+                Properties persistedImport=new ProfileStore(root.resolve("perfis/primeiro.properties")).load("senha-primeiro".toCharArray());
+                check(persistedImport.getProperty("user").equals("IMPORTADO")&&persistedImport.getProperty("password").equals("senha-cad-importada"),"Importação salva com a senha do perfil ativo");
+                check(persistedImport.getProperty("botToken").equals("token-importado-ficticio"),"Importa token protegido com outra senha");
+                check(a.post("admin/import",Java8.map("revision",importRevision,"file",importFile,"password","senha-do-arquivo")).statusCode()==409,"Importação antiga não sobrescreve revisão nova");
+                check(a.post("admin/import",Java8.map("revision",data(a.get("admin/status")).get("revision"),"file",exported,"password","senha-primeiro")).statusCode()==200,"Restaura configuração exportada no perfil ativo");
                 check(a.post("admin/logout",Java8.map()).statusCode()==200&&a.get("events").statusCode()==401,"Sair invalida apenas a sessão atual");
                 check(b.get("events").statusCode()==200,"Outra sessão permanece autenticada");
                 check(a.login("terceiro","outra-senha","").statusCode()==400,"Logout não libera perfil ativo");

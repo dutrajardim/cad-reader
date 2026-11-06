@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 /** Interface Web; host/origem e token protegem as operações de escrita contra páginas externas. */
 final class CadWebServer implements AutoCloseable {
     private final HttpServer server;
+    private final String publicOrigin = normalizePublicOrigin(System.getProperty("cad.web.publicOrigin", ""));
     private final String sessionCookieName;
     private final CadAdministration administration;
     private final CadApplication application;
@@ -51,6 +52,21 @@ final class CadWebServer implements AutoCloseable {
         server.setExecutor(workers); server.createContext("/", this::handle); server.start();
     }
     String url() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
+    static String normalizePublicOrigin(String value) {
+        if(value.trim().isEmpty())return "";
+        URI uri;
+        try { uri=URI.create(value.trim()); }
+        catch(IllegalArgumentException e){throw new IllegalArgumentException("cad.web.publicOrigin deve ser uma origem HTTPS válida.");}
+        if(!"https".equals(uri.getScheme())||uri.getHost()==null||uri.getRawUserInfo()!=null
+            ||uri.getRawQuery()!=null||uri.getRawFragment()!=null
+            ||!(uri.getRawPath().isEmpty()||uri.getRawPath().equals("/")))
+            throw new IllegalArgumentException("Use -Dcad.web.publicOrigin=https://seu-dominio, sem caminho.");
+        return "https://"+uri.getRawAuthority();
+    }
+    static boolean publicRequestAllowed(String host,String origin,String allowed) {
+        return !allowed.isEmpty() && allowed.substring("https://".length()).equals(host)
+            && (origin==null||allowed.equals(origin));
+    }
     private void handle(HttpExchange exchange) throws IOException {
         try {
             String host = exchange.getRequestHeaders().getFirst("Host");
@@ -58,7 +74,9 @@ final class CadWebServer implements AutoCloseable {
             String local = "localhost:" + server.getAddress().getPort();
             String network = exchange.getLocalAddress().getAddress().getHostAddress() + ":" + server.getAddress().getPort();
             String origin = exchange.getRequestHeaders().getFirst("Origin");
-            if (!(authority.equals(host) || local.equals(host) || network.equals(host)) || (origin != null && !origin.equals("http://" + host))) {
+            boolean localRequest = (authority.equals(host) || local.equals(host) || network.equals(host))
+                && (origin == null || origin.equals("http://" + host));
+            if (!localRequest && !publicRequestAllowed(host, origin, publicOrigin)) {
                 json(exchange, 403, Java8.map("error", "Origem não autorizada.")); return;
             }
             exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
@@ -131,6 +149,7 @@ final class CadWebServer implements AutoCloseable {
                     exchange.getResponseHeaders().add("Set-Cookie",sessionCookieName+"=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0");
                     json(exchange,200,administration.session(""));return;
                 }
+                if(path.equals("/api/admin/import")) {json(exchange,200,administration.importConfiguration(body));return;}
                 if(path.equals("/api/admin/config")) {json(exchange,200,administration.configure(body));return;}
                 if(path.startsWith("/api/admin/")) {
                     administration.action(path.substring("/api/admin/".length()),body);

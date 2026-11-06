@@ -12,6 +12,16 @@ Requisitos: Java 11 atualizado ou superior no `PATH`, ambiente gráfico e acesso
 
 ### Baixar e abrir no Windows
 
+Você também pode salvar [iniciar-cad-reader.cmd](./iniciar-cad-reader.cmd) em uma pasta com permissão de escrita e abri-lo com dois cliques. Ele procura `cad-reader.jar` ao lado do próprio arquivo; se não existir, baixa a Release mais recente e só inicia após o download terminar. Requer Java 11+ no `PATH` e Windows PowerShell. O download usa o proxy padrão do Windows e as credenciais da sessão quando disponíveis. O Java inicia com `-Djava.net.useSystemProxies=true`. Isso solicita o proxy do sistema às APIs compatíveis; não transforma a conexão TCP do CAD em HTTP nem garante autenticação em todo proxy corporativo. O arquivo existente não é atualizado automaticamente.
+
+Por padrão, abre a janela Java. Para iniciar no modo Web pelo terminal:
+
+```bat
+iniciar-cad-reader.cmd --web
+```
+
+Também é possível criar um atalho do arquivo e acrescentar `--web` (ou `--web 8090`) ao destino.
+
 Abra o **PowerShell** na pasta onde deseja guardar a aplicação e execute:
 
 ```powershell
@@ -340,3 +350,15 @@ id;nome;modo;altura_m;largura_m;comprimento_m;peso_t;carga_eixo_t
 A aba **Unidades** oferece um download do [CSV com os seis endereços pesquisados do CBMMG](frontend/public/assets/unidades-cbmmg-rmbh.csv). Fontes e limitações estão em [Pesquisa das unidades da RMBH](docs/unidades-cbmmg-rmbh.md). O arquivo não é carregado automaticamente e não substitui seu cadastro. IDs CAD e coordenadas foram deixados vazios para confirmação local. O conteúdo exportado protege campos textuais contra interpretação como fórmulas por planilhas; a importação reverte esse escape.
 
 Se aparecer `NoClassDefFoundError`/classes incompatíveis ao abrir o Valhalla, feche completamente o Java e reabra o JAR atualizado. Evite recompilar ou substituir o arquivo JAR em uso. O servidor local responde com orientação de reinício para falhas de carregamento de classes; isso não é um diagnóstico de indisponibilidade do serviço Valhalla nem exige alterar o proxy.
+
+Na administração Web, **Perfil e histórico → Importar configurações** permite importar um `.properties` depois de entrar. Desconecte o CAD e pare o bot, selecione o arquivo e informe a senha de proteção usada na exportação. **Importar e substituir configurações** aplica e salva os dados no perfil ativo, mantendo o nome e a senha de acesso atuais. Senha incorreta ou conflito de revisão não substituem as configurações.
+
+### Acesso por túnel HTTPS
+
+Para autorizar um túnel público, mantenha `cloudflared tunnel --url http://localhost:8080` aberto, copie o endereço HTTPS gerado e inicie o Java com a origem exata (substitua o exemplo):
+
+```sh
+java -Djava.net.useSystemProxies=true -Dcad.web.publicOrigin=https://cad-exemplo.trycloudflare.com -jar target/java-cad-reader-1.0.0.jar --web
+```
+
+O acesso local continua disponível. Outros hosts/origens continuam bloqueados; cabeçalhos de proxy não autorizam domínios automaticamente. Se recriar o Quick Tunnel e o link mudar, reinicie o Java com o novo endereço. Não inclua `/admin` no argumento. A autenticação administrativa e o token das operações de escrita permanecem ativos.

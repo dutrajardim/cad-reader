@@ -117,6 +117,11 @@ function App() {
       <ConnectionIndicators state={data.state} routing={data.routing} unavailable={!!error} openCad={()=>{window.location.href='/admin'}} openRouting={()=>{window.location.href='/admin'}}/>
 
     </header>
+    <div className="monitoring-scope" aria-label="Filtros do acompanhamento">
+      <span className="monitoring-scope-status">{error?'Sem comunicação':!data.state.connected?'Desconectado':data.state.ready?'Acompanhando':data.state.callFilterId?'Carregando':'Aguardando monitoramento'}</span>
+      <span><strong>Chamadas:</strong> {data.state.callFilterName||data.state.callFilterId||'Não selecionado'}</span>
+      <span><strong>Recursos:</strong> {data.state.resourceFilterName||data.state.resourceFilterId||'Não selecionado'}</span>
+    </div>
     <div className="status-strip"><span>{data.state.calls.length} ocorrências · {data.state.resources.length} viaturas <Help>{data.state.status}</Help></span><span>{data.state.updatedAt ? 'Atualizado ' + new Date(data.state.updatedAt).toLocaleTimeString('pt-BR') : 'Configure a sessão na administração'}</span></div>
     {tab==='resources'&&<ResourcesPage state={data.state} openCall={openCall}/>}
     <div hidden={tab!=='report'}><ReportDashboard key={data.token} active={tab==='report'}/></div>

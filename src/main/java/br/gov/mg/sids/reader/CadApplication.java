@@ -213,6 +213,10 @@ final class CadApplication implements AutoCloseable {
             rows.add(Java8.map("value", f.getAttribute("id"), "label", CadXml.text(f, "descricao")));
         return Collections.unmodifiableList(rows);
     }
+    private static String filterName(List<Object> catalog, String id) {
+        return catalog.stream().map(BotJson::object).filter(f -> id.equals(BotJson.text(f,"value")))
+            .map(f -> BotJson.text(f,"label")).findFirst().orElse("");
+    }
     synchronized void monitor(String calls, String resources, boolean publishing) {
         if (reader == null) throw new IllegalArgumentException("Conecte primeiro.");
         if (monitoring) throw new IllegalArgumentException("Desconecte antes de trocar filtros ou publicação.");
@@ -225,6 +229,7 @@ final class CadApplication implements AutoCloseable {
         CadXmppReader session = reader; CadMonitor monitor = activeMonitor; long current = generation;
         config.setProperty("calls", calls); config.setProperty("resources", resources);
         config.setProperty("publish", Boolean.toString(publishing)); revision++; monitoring = true;
+        String callName=filterName(callFilters,calls), resourceName=filterName(resourceCatalog,resources);
         tasks.submit(() -> {
             DiscordPublisher created = null;
             try {
@@ -234,7 +239,7 @@ final class CadApplication implements AutoCloseable {
                 }
                 synchronized (CadApplication.this) {
                     if (reader != session || generation != current) { if (created != null) created.close(); return; }
-                    monitor.setResourceFilter(scope); operational.start(scope); operational.filterConfig(calls, resources);
+                    monitor.setResourceFilter(scope); operational.start(scope); operational.filterConfig(calls, resources, callName, resourceName);
                     discord = created;
                 }
                 session.applyFilters(calls, resources);
